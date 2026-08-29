@@ -1,48 +1,106 @@
 # MT5 Trade Copier
 
-MetaTrader 5 Expert Advisor that copies trades between two or more MT5 terminals using a shared snapshot file. One terminal runs in **Provider** mode (publishes open positions); other terminals run in **Receiver** mode (mirror those positions).
+[![MetaTrader 5](https://img.shields.io/badge/Platform-MetaTrader%205-blue)](https://www.metatrader5.com/)
+[![MQL5](https://img.shields.io/badge/Language-MQL5-green)](https://www.mql5.com/)
+[![Version](https://img.shields.io/badge/Version-1.01-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
 
-## Files
+A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).
 
-```
-Experts/MT5TradeCopier/
-  MT5TradeCopier.mq5      Main EA
-  CopierTypes.mqh         Shared enums/structs
-  CopierLogger.mqh        Leveled logging + optional file rotation
-  CopierCsv.mqh           CSV parsing/checksum helpers
-  CopierFileSync.mqh      Atomic snapshot read/write (Common\Files)
-  CopierRemote.mqh        HTTP download, FTP upload, heartbeat
-  CopierState.mqh         Persisted provider→receiver ticket mapping
-  CopierTrade.mqh         Lot sizing, symbol remap, order execution
-```
+Works with manual trades, signals, or **any other EA** (e.g. TBR Executor, Firebase bots) running on the provider account.
 
-Copy the `MT5TradeCopier` folder into your terminal's `MQL5/Experts/` directory and compile `MT5TradeCopier.mq5` in MetaEditor.
+---
+
+## Table of contents
+
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start (local copy)](#quick-start-local-copy)
+- [Copy trades from another EA](#copy-trades-from-another-ea)
+- [Remote copy (different PCs)](#remote-copy-different-pcs)
+- [Input parameters](#input-parameters)
+- [Polling interval](#polling-interval)
+- [Troubleshooting](#troubleshooting)
+- [Project structure](#project-structure)
+- [Known limitations](#known-limitations)
+- [License](#license)
+
+---
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Dual mode** | Single EA — choose `PROVIDER` or `RECEIVER` at attach time |
+| **All symbols** | One chart attachment copies **every** open position on the account |
+| **Local sync** | Shared `Common\Files` snapshot (same machine) |
+| **Remote sync** | Optional FTP upload (provider) + HTTP download (receiver) |
+| **Multi-provider** | Receiver can subscribe to multiple provider account numbers |
+| **Ticket mapping** | Persisted provider→receiver ticket map survives restarts |
+| **Lot sizing** | Same, proportional to balance, or proportional to free margin |
+| **Risk controls** | Deviation filter, age filter, direction filter, equity reserve |
+| **Symbol remap** | Map broker-specific symbol names between accounts |
+| **Partial close** | Proportional volume sync when provider partially closes |
+| **Safe coexistence** | Only touches trades with the copier magic + comment tag |
+
+---
 
 ## How it works
 
-1. **Provider** polls open positions on a timer and writes `MT5Copier-{account}-positions.csv` into the terminal **Common\Files** folder using an atomic temp-file rename.
-2. **Receiver** reads the same file(s), diffs against persisted ticket mappings, and opens/closes/modifies only trades tagged with the configured magic number and `MCP|{providerAccount}|{providerTicket}` comment.
-3. **Remote copy**: provider optionally uploads via `SendFTP()`; receiver optionally downloads via `WebRequest()` HTTP GET (with basic auth).
+```
+┌─────────────────────┐         ┌──────────────────────────┐         ┌─────────────────────┐
+│  PROVIDER terminal  │         │   Common\Files (local)   │         │ RECEIVER terminal   │
+│                     │         │   or HTTP (remote)       │         │                     │
+│  Any open positions │ ──────► │ MT5Copier-{acct}.csv     │ ──────► │ Mirror positions    │
+│  (manual / any EA)  │  write  │ + checksum / row count   │  read   │ (magic + MCP tag)   │
+└─────────────────────┘         └──────────────────────────┘         └─────────────────────┘
+```
 
-## Terminal permissions
+1. **Provider** polls all open positions on a timer and writes an atomic CSV snapshot.
+2. **Receiver** reads the snapshot, diffs against a persisted mapping file, and opens/closes/modifies tagged trades only.
+3. Timer-driven sync (`OnTimer`) — the chart symbol does **not** matter.
 
-In **Tools → Options → Expert Advisors**:
+---
 
-- Enable **Allow algorithmic trading**
-- Enable **Allow WebRequest for listed URL** and add:
-  - Receiver HTTP download URL(s)
-  - Heartbeat URL (if used)
-- For FTP upload: configure **Tools → Options → FTP** (server, login, password, passive mode if needed)
+## Requirements
 
-`SendFTP()` only uploads files from the terminal `MQL5/Files` folder; the EA copies the snapshot there automatically before upload.
+- MetaTrader 5 (hedging account **strongly recommended**)
+- MetaEditor to compile the EA
+- **Same PC (local):** both terminals installed; `Common\Files` is shared automatically
+- **Remote:** FTP server (provider) + HTTP URL (receiver) whitelisted in terminal settings
 
-Local copy between terminals on the same machine uses **Common\Files** (`FILE_COMMON`) — both terminals must run on the same PC (or share that folder).
+---
 
-## Quick setup
+## Installation
 
-### 1) Local copy test (same PC, two terminals)
+### From GitHub
 
-**Provider terminal**
+```bash
+git clone https://github.com/bpareshgit/MT5TradeCopier.git
+```
+
+### Into MetaTrader 5
+
+1. In MT5: **File → Open Data Folder**
+2. Copy the folder:
+
+   ```
+   Experts/MT5TradeCopier/  →  MQL5/Experts/MT5TradeCopier/
+   ```
+
+3. Open `MT5TradeCopier.mq5` in MetaEditor
+4. Press **Compile** (F7) — expect **0 errors**, version **1.01**
+
+All `.mqh` headers live **next to** the `.mq5` file in the same folder.
+
+---
+
+## Quick start (local copy)
+
+Use two MT5 terminals on the **same computer** (or two accounts in portable instances sharing `Common\Files`).
+
+### Provider terminal
 
 | Input | Value |
 |-------|-------|
@@ -50,79 +108,181 @@ Local copy between terminals on the same machine uses **Common\Files** (`FILE_CO
 | Poll interval | `1000` ms |
 | Remote upload FTP | `false` |
 
-Attach the EA to any chart on the provider account. Open a small manual trade and confirm a file appears in:
+Attach to **any chart** (symbol does not matter). Open a small manual trade.
 
-`Terminal\Common\Files\MT5Copier-{providerLogin}-positions.csv`
+Verify snapshot file exists:
 
-**Receiver terminal**
+```
+Terminal\Common\Files\MT5Copier-{yourLogin}-positions.csv
+```
+
+### Receiver terminal
 
 | Input | Value |
 |-------|-------|
 | Operating mode | `RECEIVER` |
 | Provider account numbers | provider login, e.g. `12345678` |
-| Lot sizing mode | `SAME_AS_PROVIDER` (for testing) |
+| Lot sizing mode | `SAME_AS_PROVIDER` |
 | Remote download HTTP | `false` |
-| Symbol remap | set if broker symbols differ, e.g. `EURUSD=EURUSD.micro` |
+| Symbol remap | only if symbols differ between brokers |
 
-Attach on the receiver account. The receiver should open a matching trade within one poll interval.
+Attach to any chart. Matching trade should appear within ~1 second.
 
-State mappings are stored in:
+State file (survives restarts):
 
-`Common\Files\MT5Copier_state_{receiverLogin}_{providerLogin}.csv`
+```
+Terminal\Common\Files\MT5Copier_state_{receiverLogin}_{providerLogin}.csv
+```
 
-Stop/restart the EA — it should reconcile from this file without duplicating trades.
+---
 
-### 2) Remote copy (different machines)
+## Copy trades from another EA
 
-**Provider**
+You can run **MT5TradeCopier** alongside another EA (e.g. TBR Executor, signal copiers, Firebase bots) on the **provider** account.
 
-1. Configure terminal FTP settings.
-2. Set **Remote upload FTP** = `true`.
-3. Set **FTP remote path** if your server needs a subfolder.
-4. Ensure your web/FTP server exposes the uploaded CSV via HTTP for receivers.
+| Question | Answer |
+|----------|--------|
+| Separate chart per symbol? | **No** — one copier on any chart copies all account positions |
+| Match the other EA's poll rate? | **No** — use **1000–2000 ms** on the copier for fast sync |
+| Which trades are copied? | **All** open positions on the provider account |
+| Which trades does receiver touch? | Only copies with copier magic + `MCP\|{account}\|{ticket}` comment |
 
-**Receiver**
+**Example:** TBR Executor scans Firebase every ~15 s. Set copier poll to **1000 ms** on both provider and receiver — the copier mirrors positions as soon as TBR opens them, without waiting 15 s.
 
-1. Add the download URL to allowed WebRequest URLs.
-2. Set **Remote download HTTP** = `true`.
-3. Set **HTTP download URL**, e.g. `https://example.com/copier/MT5Copier-{account}-positions.csv`
-4. Set HTTP username/password if required.
+---
 
-Test HTTP download first (browser or `curl`) before relying on the EA.
+## Remote copy (different PCs)
 
-## Input reference (by group)
+### Provider
 
-- **General**: mode, poll interval, magic number, logging
-- **Provider**: hedging requirement
-- **Receiver**: provider list, lot mode, leverage factor, symbol map, slippage
-- **Remote Copy**: FTP upload / HTTP download settings
-- **Monitoring**: heartbeat URL + interval
-- **Risk**: deviation, age filter, direction filter, exclusions, equity reserve, mass-close alert mode
+1. **Tools → Options → FTP** — configure server, login, password
+2. Set **Remote upload FTP** = `true`
+3. Expose the uploaded CSV via HTTP for receivers
 
-## Lot sizing
+### Receiver
 
-| Mode | Behavior |
-|------|----------|
-| `SAME_AS_PROVIDER` | Copy provider volume (rounded to symbol step/min/max) |
-| `PROPORTIONAL_TO_BALANCE` | Scale by receiver_balance / provider_balance |
-| `PROPORTIONAL_TO_FREE_MARGIN` | Scale by receiver_free_margin / provider_free_margin |
+1. **Tools → Options → Expert Advisors** — add HTTP download URL to allowed list
+2. Set **Remote download HTTP** = `true`
+3. Set URL, e.g. `https://example.com/copier/MT5Copier-{account}-positions.csv`
+4. Set HTTP username/password if needed
 
-Enable **Factor leverage** to multiply by `receiver_leverage / provider_leverage`.
+---
+
+## Input parameters
+
+### General
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| Operating mode | `RECEIVER` | `PROVIDER` or `RECEIVER` |
+| Poll interval (ms) | `1000` | Sync timer (min 200 ms) |
+| Magic number | `56001501` | Tags copied receiver trades |
+| Log level | `INFO` | NONE / ERROR / WARN / INFO / DEBUG |
+| Log to file | `true` | Rotating log in Common\Files |
+
+### Receiver
+
+| Input | Description |
+|-------|-------------|
+| Provider account numbers | Comma-separated, e.g. `12345,67890` |
+| Lot sizing mode | Same / balance / free margin proportional |
+| Factor leverage | Scale lots by leverage ratio |
+| Symbol remap | `EURUSD=EURUSD.micro;XAUUSD=XAUUSDm` |
+| Slippage points | Max slippage for orders |
+
+### Risk
+
+| Input | Description |
+|-------|-------------|
+| Max price deviation | Skip if price moved too far (points) |
+| Max trade age | Skip old provider positions (minutes) |
+| Ignore profitable | Skip trades already in profit on provider |
+| Direction filter | Both / buy only / sell only |
+| Excluded tickets | Comma-separated provider tickets to skip |
+| Equity reserve % | Stop copying when margin usage too high |
+| Mass close mode | Auto-close or alert when many losers close at once |
+
+Full list is in the EA inputs panel under grouped sections.
+
+---
+
+## Polling interval
+
+| Component | Recommended | Notes |
+|-----------|-------------|-------|
+| Provider copier | **1000–2000 ms** | Writes position snapshot |
+| Receiver copier | **Same as provider** | Reads and syncs |
+| Other EA on provider (e.g. TBR) | Independent | Copier does not need to match this rate |
+
+Faster polling = lower copy latency. Values below 200 ms are raised automatically.
+
+---
+
+## Troubleshooting
+
+### `CopierTypes.mqh not found`
+
+Copy the **entire** `MT5TradeCopier` folder (all 8 files) into `MQL5/Experts/MT5TradeCopier/`. Do not copy only the `.mq5` file.
+
+### `SYMBOL_VOLUME_DIGITS` compile error
+
+You have an old `CopierTrade.mqh`. Delete the folder and reinstall from this repo (version **1.01**).
+
+### Receiver does not copy
+
+1. Confirm provider CSV exists in `Terminal\Common\Files\`
+2. Check **Provider account numbers** matches provider login exactly
+3. Enable **INFO** logging and check Experts tab
+4. Verify symbol exists on receiver broker (use **Symbol remap**)
+5. Confirm both accounts are **hedging** mode
+
+### Receiver skips new trades
+
+- **Max price deviation** — price moved too far from provider entry
+- **Max trade age** — position too old when first seen
+- **Equity reserve** — receiver margin limit reached
+- **Direction filter** — buy/sell filter active
+
+---
+
+## Project structure
+
+```
+MT5TradeCopier/
+├── README.md
+├── .gitignore
+└── Experts/
+    └── MT5TradeCopier/
+        ├── MT5TradeCopier.mq5      # Main EA — compile this
+        ├── CopierTypes.mqh          # Enums and structs
+        ├── CopierLogger.mqh         # Logging
+        ├── CopierCsv.mqh            # CSV helpers
+        ├── CopierFileSync.mqh       # Atomic file read/write
+        ├── CopierRemote.mqh         # HTTP / FTP / heartbeat
+        ├── CopierState.mqh          # Ticket mapping persistence
+        └── CopierTrade.mqh          # Lot sizing and execution
+```
+
+---
 
 ## Known limitations
 
-- **Hedging recommended**: ticket-level copy is designed for hedging accounts. Netting accounts are warned/blocked by default.
-- **No raw sockets**: all HTTP must use `WebRequest()` with whitelisted URLs.
-- **FTP**: MQL5 only supports uploading a single file via `SendFTP()` using terminal FTP settings (not per-EA FTP credentials).
-- **Partial closes**: when provider volume shrinks, receiver closes proportionally; volume increases open an additional slice on the same mapped ticket where possible.
-- **Async orders**: execution uses async `CTrade`; mapping waits briefly for the position ticket to appear.
-- **Garbled reads**: checksum + row-count header rejects partial writes; receiver skips that poll cycle.
-- **Mass close alert**: when multiple losing provider closes happen at once, alert mode sends push/email instead of auto-closing.
+- **Hedging accounts** are required for reliable ticket-level copy (netting is warned/blocked by default).
+- **WebRequest URLs** must be whitelisted manually in terminal settings.
+- **FTP** uses terminal-wide FTP settings (`SendFTP`); no per-EA FTP credentials in MQL5.
+- **Async execution** — brief delay possible before receiver ticket appears in mapping.
+- **Checksum guard** — receiver skips a poll cycle if provider file is mid-write.
+
+---
 
 ## License
 
-Original implementation in this repository (not ported from GPL reference code). Use and modify as you wish; add your own license if you distribute binaries.
+Independent implementation. Use and modify freely. Add your own license if you distribute compiled binaries.
 
-## Attribution
+Architecture inspired by the community file-sync copier pattern ([sharing-is-caring](https://github.com/wait4signal/sharing-is-caring)); this codebase is **not** a port of that GPL project.
 
-Architecture inspired by the community file-sync copier pattern (e.g. [sharing-is-caring](https://github.com/wait4signal/sharing-is-caring)); this codebase is an independent implementation.
+---
+
+## Author
+
+Maintained by [bpareshgit](https://github.com/bpareshgit).

@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.00"
+#property version   "1.01"
 #property strict
 
 #include "CopierTypes.mqh"

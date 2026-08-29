@@ -1,5 +1,6 @@
 //+------------------------------------------------------------------+
 //| CopierTrade.mqh - Symbol remap, lot sizing, trade execution      |
+//| Build 2 - volume digits derived from SYMBOL_VOLUME_STEP          |
 //+------------------------------------------------------------------+
 #ifndef COPIER_TRADE_MQH
 #define COPIER_TRADE_MQH
@@ -121,6 +122,23 @@ public:
       return true;
      }
 
+   int VolumeDigitsFromStep(const double step) const
+     {
+      if(step <= 0.0)
+         return 2;
+      if(step >= 1.0)
+         return 0;
+
+      int digits = 0;
+      double value = step;
+      while(digits < 8 && MathAbs(MathRound(value) - value) > 1e-8)
+        {
+         value *= 10.0;
+         digits++;
+        }
+      return digits;
+     }
+
    double NormalizeVolume(const string symbol, double volume)
      {
       double min_lot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
@@ -135,8 +153,7 @@ public:
       if(volume > max_lot)
          volume = max_lot;
 
-      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_VOLUME_DIGITS);
-      return NormalizeDouble(volume, digits);
+      return NormalizeDouble(volume, VolumeDigitsFromStep(step));
      }
 
    double CalculateLotSize(const SProviderPosition &pos,
