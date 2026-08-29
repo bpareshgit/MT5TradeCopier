@@ -11,6 +11,8 @@ Works with manual trades, signals, or **any other EA** (e.g. EA Executor, Fireba
 
 > **New here or hit an error?** Read the **[Setup & troubleshooting guide](docs/SETUP.md)** — step-by-step inputs, local vs remote copy, and fixes for common log messages.
 
+> **Want faster copy?** See **[Speed optimization plan](docs/SPEED.md)** — 200 ms local setup without affecting your main EA.
+
 ---
 
 ## Table of contents
