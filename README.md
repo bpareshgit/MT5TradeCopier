@@ -9,6 +9,8 @@ A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provid
 
 Works with manual trades, signals, or **any other EA** (e.g. EA Executor, Firebase bots) running on the provider account.
 
+> **New here or hit an error?** Read the **[Setup & troubleshooting guide](docs/SETUP.md)** — step-by-step inputs, local vs remote copy, and fixes for common log messages.
+
 ---
 
 ## Table of contents
@@ -17,6 +19,7 @@ Works with manual trades, signals, or **any other EA** (e.g. EA Executor, Fireba
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Setup & troubleshooting guide](docs/SETUP.md) — **start here if you see errors**
 - [Quick start (local copy)](#quick-start-local-copy)
 - [Copy trades from another EA](#copy-trades-from-another-ea)
 - [Remote copy (different PCs)](#remote-copy-different-pcs)
@@ -221,21 +224,30 @@ Faster polling = lower copy latency. Values below 200 ms are raised automaticall
 
 ## Troubleshooting
 
+See **[docs/SETUP.md](docs/SETUP.md)** for the full guide, including:
+
+- `Receiver requires a hedging account` — init failed code 1
+- `Remote HTTP enabled but URL is empty` — wrong receiver inputs for local copy
+- Compile errors (`CopierTypes.mqh not found`, `SYMBOL_VOLUME_DIGITS`)
+- EA runs but does not copy trades
+
+Quick fixes:
+
 ### `CopierTypes.mqh not found`
 
 Copy the **entire** `MT5TradeCopier` folder (all 8 files) into `MQL5/Experts/MT5TradeCopier/`. Do not copy only the `.mq5` file.
 
 ### `SYMBOL_VOLUME_DIGITS` compile error
 
-You have an old `CopierTrade.mqh`. Delete the folder and reinstall from this repo (version **1.01**).
+Delete the folder and reinstall from this repo (version **1.01**).
 
 ### Receiver does not copy
 
 1. Confirm provider CSV exists in `Terminal\Common\Files\`
 2. Check **Provider account numbers** matches provider login exactly
-3. Enable **INFO** logging and check Experts tab
+3. Set **Remote download HTTP** = `false` for local copy
 4. Verify symbol exists on receiver broker (use **Symbol remap**)
-5. Confirm both accounts are **hedging** mode
+5. Confirm hedging accounts (or disable require-hedging for testing)
 
 ### Receiver skips new trades
 
@@ -251,6 +263,9 @@ You have an old `CopierTrade.mqh`. Delete the folder and reinstall from this rep
 ```
 MT5TradeCopier/
 ├── README.md
+├── LICENSE
+├── docs/
+│   └── SETUP.md              # Setup & troubleshooting (read this first if errors)
 ├── .gitignore
 └── Experts/
     └── MT5TradeCopier/
