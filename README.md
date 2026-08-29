@@ -7,7 +7,7 @@
 
 A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).
 
-Works with manual trades, signals, or **any other EA** (e.g. TBR Executor, Firebase bots) running on the provider account.
+Works with manual trades, signals, or **any other EA** (e.g. EA Executor, Firebase bots) running on the provider account.
 
 ---
 
@@ -139,7 +139,7 @@ Terminal\Common\Files\MT5Copier_state_{receiverLogin}_{providerLogin}.csv
 
 ## Copy trades from another EA
 
-You can run **MT5TradeCopier** alongside another EA (e.g. TBR Executor, signal copiers, Firebase bots) on the **provider** account.
+You can run **MT5TradeCopier** alongside another EA (e.g. Executor, signal copiers, Firebase bots) on the **provider** account.
 
 | Question | Answer |
 |----------|--------|
@@ -148,7 +148,7 @@ You can run **MT5TradeCopier** alongside another EA (e.g. TBR Executor, signal c
 | Which trades are copied? | **All** open positions on the provider account |
 | Which trades does receiver touch? | Only copies with copier magic + `MCP\|{account}\|{ticket}` comment |
 
-**Example:** TBR Executor scans Firebase every ~15 s. Set copier poll to **1000 ms** on both provider and receiver — the copier mirrors positions as soon as TBR opens them, without waiting 15 s.
+**Example:** EA Executor scans Firebase every ~15 s. Set copier poll to **1000 ms** on both provider and receiver — the copier mirrors positions as soon as EA opens them, without waiting 15 s.
 
 ---
 
@@ -213,7 +213,7 @@ Full list is in the EA inputs panel under grouped sections.
 |-----------|-------------|-------|
 | Provider copier | **1000–2000 ms** | Writes position snapshot |
 | Receiver copier | **Same as provider** | Reads and syncs |
-| Other EA on provider (e.g. TBR) | Independent | Copier does not need to match this rate |
+| Other EA on provider (e.g. EA) | Independent | Copier does not need to match this rate |
 
 Faster polling = lower copy latency. Values below 200 ms are raised automatically.
 
