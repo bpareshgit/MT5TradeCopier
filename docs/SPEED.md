@@ -155,7 +155,7 @@ If you need **sub-200 ms** reaction, the EA would need a code change:
 - **`OnTradeTransaction`** on provider → write snapshot immediately when a position opens/closes (event-driven + optional 200 ms backup poll)
 - **Reduce `Sleep(50)`** wait in receiver open logic (currently up to ~1 s ticket lookup)
 
-These are not in v1.01. Open a [GitHub issue](https://github.com/bpareshgit/MT5TradeCopier/issues) if you want event-driven mode added.
+These are not in v1.03. Open a [GitHub issue](https://github.com/bpareshgit/MT5TradeCopier/issues) if you want event-driven mode added.
 
 ---
 
