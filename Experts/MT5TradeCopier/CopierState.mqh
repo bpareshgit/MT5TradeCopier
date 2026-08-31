@@ -137,7 +137,19 @@ public:
       FileClose(handle);
 
       if(m_log != NULL)
-         m_log.Info(StringFormat("Loaded %d mappings from %s", ArraySize(m_mappings), m_filename));
+        {
+         string common = TerminalInfoString(TERMINAL_COMMONDATA_PATH);
+         if(StringLen(common) > 0)
+           {
+            if(StringGetCharacter(common, StringLen(common) - 1) != '\\')
+               common += "\\";
+            common += "Files\\" + m_filename;
+           }
+         else
+            common = "Terminal\\Common\\Files\\" + m_filename;
+
+         m_log.Debug(StringFormat("Loaded %d mappings from %s", ArraySize(m_mappings), common));
+        }
       return true;
      }
 

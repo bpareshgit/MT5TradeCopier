@@ -1,6 +1,6 @@
 # Speed optimization plan
 
-How to make **MT5 Trade Copier** as fast as possible **without interfering** with your existing EA (TBR Executor, signal bots, manual trading, etc.).
+How to make **MT5 Trade Copier** as fast as possible **without interfering** with your existing EA (signal bots, manual trading, etc.).
 
 ---
 
@@ -15,7 +15,7 @@ How to make **MT5 Trade Copier** as fast as possible **without interfering** wit
 | **Do not** attach receiver copier on the same account as your signal EA | Receiver **executes** trades — that would fight your bot |
 | Keep copier **log level** at `WARN` or `ERROR` on provider | Less disk I/O while your main EA runs |
 
-**Your TBR / Firebase EA is untouched:** it keeps scanning Firebase and opening trades. The copier only watches the resulting positions.
+**Your signal EA is untouched:** it keeps opening trades as usual. The copier only watches the resulting positions.
 
 ---
 
@@ -33,7 +33,7 @@ For **lightning-fast** copy, use **local `Common\Files` sync** on the **same PC*
 
 ## Phase 1 — Settings only (do this now)
 
-### Provider terminal (where TBR / your EA runs)
+### Provider terminal (where your EA runs)
 
 | Input | Recommended | Notes |
 |-------|---------------|-------|
@@ -75,14 +75,14 @@ Attach copier to **any** chart (XAUUSD, BTCUSD, etc. — symbol does not matter)
 |-------|--------|
 | HTTP/FTP for local copy | Adds network delay |
 | Poll interval below 200 ms | EA enforces 200 ms minimum |
-| Matching TBR’s 15 s Firebase scan | Irrelevant — copier should be **faster** than TBR |
+| Matching your EA's slow scan interval | Irrelevant — copier should be **faster** than your EA |
 | `DEBUG` log on provider 24/7 | Extra file writes every 200 ms |
 
 ---
 
 ## Phase 2 — Verify speed (5-minute test)
 
-1. Provider: TBR (or manual) opens **one small XAUUSD** trade.
+1. Provider: your EA (or manual) opens **one small XAUUSD** trade.
 2. Note time in provider **Toolbox → History**.
 3. Note time receiver copy appears in **Toolbox → Trade**.
 4. Check provider file updates:
@@ -106,7 +106,7 @@ If slow, check:
 │  PROVIDER TERMINAL (same PC)                                │
 │                                                             │
 │  ┌──────────────┐     ┌─────────────────────┐              │
-│  │ TBR Executor │     │ MT5TradeCopier      │              │
+│  │ Your EA      │     │ MT5TradeCopier      │              │
 │  │ (your EA)    │     │ mode = PROVIDER     │              │
 │  │ Opens trades │     │ READ ONLY           │              │
 │  └──────┬───────┘     │ poll 200ms          │              │
@@ -129,13 +129,13 @@ If slow, check:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**No line connects copier to TBR** — they only share the account’s position list.
+**No line connects copier to your EA** — they only share the account’s position list.
 
 ---
 
 ## Why this does not affect your ongoing EA
 
-| Copier action | Provider (TBR account) | Receiver account |
+| Copier action | Provider (your EA account) | Receiver account |
 |---------------|------------------------|------------------|
 | Open trade | ❌ Never | ✅ Only copied trades |
 | Close trade | ❌ Never | ✅ Only its own copies |
@@ -144,7 +144,7 @@ If slow, check:
 | CPU on OnTick | ❌ Empty OnTick | ❌ Empty OnTick |
 | Uses timer | ✅ Lightweight | ✅ Lightweight |
 
-TBR keeps full control of **when** to open. Copier only **reflects** what already exists.
+Your EA keeps full control of **when** to open. Copier only **reflects** what already exists.
 
 ---
 
@@ -161,7 +161,7 @@ These are not in v1.01. Open a [GitHub issue](https://github.com/bpareshgit/MT5T
 
 ## Quick copy-paste settings
 
-### Provider (with TBR running)
+### Provider (with your EA running)
 ```
 Mode = PROVIDER
 Poll = 200

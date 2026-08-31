@@ -9,7 +9,7 @@ Use this guide if the EA fails on init, spams warnings, or does not copy trades.
 ## Before you start (checklist)
 
 - [ ] MetaTrader 5 installed and **Algo Trading** enabled (toolbar button green)
-- [ ] EA compiled with **0 errors** in MetaEditor (version **1.01**)
+- [ ] EA compiled with **0 errors** in MetaEditor (version **1.03**)
 - [ ] All 8 files copied to `MQL5/Experts/MT5TradeCopier/`
 - [ ] You know whether you copy **local** (same PC) or **remote** (different PCs)
 - [ ] Provider and receiver account **login numbers** noted
@@ -189,7 +189,7 @@ undeclared identifier 'SYMBOL_VOLUME_DIGITS'
 **Fix:**
 1. Delete `MQL5/Experts/MT5TradeCopier/` entirely.
 2. Re-copy all 8 files from [GitHub](https://github.com/bpareshgit/MT5TradeCopier).
-3. Compile again (expect version **1.01**, 0 errors).
+3. Compile again (expect version **1.03**, 0 errors).
 
 ---
 
@@ -247,7 +247,7 @@ Enable **Log level** = `DEBUG` and re-check Experts tab.
 
 ---
 
-## Copying from another EA (e.g. TBR Executor)
+## Copying from another EA
 
 1. Run your signal EA **and** MT5TradeCopier **Provider** on the **same** provider account.
 2. One copier chart is enough — it copies **all** open positions.

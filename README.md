@@ -2,12 +2,12 @@
 
 [![MetaTrader 5](https://img.shields.io/badge/Platform-MetaTrader%205-blue)](https://www.metatrader5.com/)
 [![MQL5](https://img.shields.io/badge/Language-MQL5-green)](https://www.mql5.com/)
-[![Version](https://img.shields.io/badge/Version-1.01-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
+[![Version](https://img.shields.io/badge/Version-1.03-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).
 
-Works with manual trades, signals, or **any other EA** (e.g. EA Executor, Firebase bots) running on the provider account.
+Works with manual trades, signals, or **any other EA** running on the provider account.
 
 > **New here or hit an error?** Read the **[Setup & troubleshooting guide](docs/SETUP.md)** — step-by-step inputs, local vs remote copy, and fixes for common log messages.
 
@@ -48,7 +48,7 @@ Works with manual trades, signals, or **any other EA** (e.g. EA Executor, Fireba
 | **Risk controls** | Deviation filter, age filter, direction filter, equity reserve |
 | **Symbol remap** | Map broker-specific symbol names between accounts |
 | **Partial close** | Proportional volume sync when provider partially closes |
-| **Safe coexistence** | Only touches trades with the copier magic + comment tag |
+| **On-chart status** | Live panel: mode, handshake, position count, CSV path |
 
 ---
 
@@ -96,7 +96,7 @@ git clone https://github.com/bpareshgit/MT5TradeCopier.git
    ```
 
 3. Open `MT5TradeCopier.mq5` in MetaEditor
-4. Press **Compile** (F7) — expect **0 errors**, version **1.01**
+4. Press **Compile** (F7) — expect **0 errors**, version **1.03**
 
 All `.mqh` headers live **next to** the `.mq5` file in the same folder.
 
@@ -144,7 +144,7 @@ Terminal\Common\Files\MT5Copier_state_{receiverLogin}_{providerLogin}.csv
 
 ## Copy trades from another EA
 
-You can run **MT5TradeCopier** alongside another EA (e.g. Executor, signal copiers, Firebase bots) on the **provider** account.
+You can run **MT5TradeCopier** alongside another EA (signal bots, manual trading, etc.) on the **provider** account.
 
 | Question | Answer |
 |----------|--------|
@@ -153,7 +153,7 @@ You can run **MT5TradeCopier** alongside another EA (e.g. Executor, signal copie
 | Which trades are copied? | **All** open positions on the provider account |
 | Which trades does receiver touch? | Only copies with copier magic + `MCP\|{account}\|{ticket}` comment |
 
-**Example:** EA Executor scans Firebase every ~15 s. Set copier poll to **1000 ms** on both provider and receiver — the copier mirrors positions as soon as EA opens them, without waiting 15 s.
+**Example:** If your EA scans for signals every ~15 s, set copier poll to **200–1000 ms** on both provider and receiver — the copier mirrors positions as soon as the EA opens them, without waiting for the next scan.
 
 ---
 
@@ -241,7 +241,7 @@ Copy the **entire** `MT5TradeCopier` folder (all 8 files) into `MQL5/Experts/MT5
 
 ### `SYMBOL_VOLUME_DIGITS` compile error
 
-Delete the folder and reinstall from this repo (version **1.01**).
+Delete the folder and reinstall from this repo (version **1.03**).
 
 ### Receiver does not copy
 

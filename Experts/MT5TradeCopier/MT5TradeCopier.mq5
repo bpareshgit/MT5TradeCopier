@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.01"
+#property version   "1.03"
 #property strict
 
 #include "CopierTypes.mqh"
@@ -31,6 +31,7 @@ input long                      InpMagicNumber          = 56001501;             
 input ENUM_COPIER_LOG_LEVEL     InpLogLevel             = COPIER_LOG_INFO;          // Log level
 input bool                      InpLogToFile            = true;                     // Write rotating log file
 input int                       InpLogMaxKb             = 512;                      // Rotate log after (KB)
+input bool                      InpShowChartStatus      = true;                     // Show live status on chart
 
 //--- Provider
 input group "=== Provider ==="
@@ -80,6 +81,7 @@ CCopierTrade    g_trade;
 long            g_provider_accounts[];
 bool            g_initialized = false;
 uint            g_timer_ms = 0;
+const string    COPIER_PANEL_PREFIX = "MT5CopierPanel_";
 
 //+------------------------------------------------------------------+
 //| Parse comma-separated account list                               |
@@ -477,12 +479,178 @@ void SyncProviderAccount(const long provider_account)
   }
 
 //+------------------------------------------------------------------+
-//| Receiver tick: sync all configured providers                     |
+//| Log shared folder paths and handshake expectations at startup.   |
+//+------------------------------------------------------------------+
+void LogStartupPaths()
+  {
+   g_logger.Info("[PATH] Shared data folder: " + g_files.CommonFilesDir());
+   g_logger.Info("[PATH] Copier log file: " + g_files.LogFullPath());
+   g_logger.Info("[PATH] Open in Explorer: File -> Open Data Folder -> ..\\Common\\Files");
+
+   if(InpMode == COPIER_PROVIDER)
+     {
+      long account = AccountInfoInteger(ACCOUNT_LOGIN);
+      g_logger.Info("[PATH] This terminal WRITES snapshot: " + g_files.SnapshotFullPath(account));
+      g_logger.Info(StringFormat("[HANDSHAKE] PROVIDER ready on account %d — receivers should read the file above",
+                                 account));
+     }
+   else
+     {
+      long receiver = AccountInfoInteger(ACCOUNT_LOGIN);
+      g_logger.Info(StringFormat("[HANDSHAKE] RECEIVER on account %d — watching provider account(s): %s",
+                                 receiver, InpProviderAccounts));
+
+      for(int i = 0; i < ArraySize(g_provider_accounts); i++)
+        {
+         long provider = g_provider_accounts[i];
+         g_logger.Info("[PATH] Read provider snapshot: " + g_files.SnapshotFullPath(provider));
+         g_logger.Info("[PATH] State mappings file: " + g_files.StateFullPath(receiver, provider));
+        }
+
+      if(InpRemoteDownloadHttp)
+         g_logger.Info("[PATH] Remote HTTP enabled — snapshot downloaded before local read");
+      else
+         g_logger.Info("[PATH] Local copy mode — both terminals must share Common\\Files on this PC");
+     }
+  }
+
 //+------------------------------------------------------------------+
 void RunReceiverCycle()
   {
    for(int i = 0; i < ArraySize(g_provider_accounts); i++)
       SyncProviderAccount(g_provider_accounts[i]);
+  }
+
+//+------------------------------------------------------------------+
+//| Shorten a path for the on-chart panel.                           |
+//+------------------------------------------------------------------+
+string ShortPathForChart(const string path)
+  {
+   int n = StringLen(path);
+   if(n <= 58)
+      return path;
+   return "..." + StringSubstr(path, n - 55);
+  }
+
+void ChartLabelCreate(const string name, const int y, const color clr, const int size)
+  {
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 14);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+     }
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, size);
+  }
+
+void ClearChartStatus()
+  {
+   Comment("");
+   ObjectsDeleteAll(0, COPIER_PANEL_PREFIX);
+   ChartRedraw(0);
+  }
+
+void UpdateChartStatus()
+  {
+   if(!InpShowChartStatus)
+     {
+      ClearChartStatus();
+      return;
+     }
+
+   const string bg = COPIER_PANEL_PREFIX + "bg";
+   if(ObjectFind(0, bg) < 0)
+     {
+      ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, 8);
+      ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, 18);
+      ObjectSetInteger(0, bg, OBJPROP_XSIZE, 430);
+      ObjectSetInteger(0, bg, OBJPROP_YSIZE, 168);
+      ObjectSetInteger(0, bg, OBJPROP_BGCOLOR, C'18,22,28');
+      ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, bg, OBJPROP_COLOR, C'70,90,110');
+      ObjectSetInteger(0, bg, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, bg, OBJPROP_BACK, false);
+      ObjectSetInteger(0, bg, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, bg, OBJPROP_HIDDEN, true);
+     }
+
+   long login = AccountInfoInteger(ACCOUNT_LOGIN);
+   bool provider = (InpMode == COPIER_PROVIDER);
+   string mode = provider ? "PROVIDER" : "RECEIVER";
+   string status = g_files.LastStatusText();
+   if(StringLen(status) == 0)
+      status = "STARTING";
+
+   color status_color = clrOrange;
+   if(g_files.LastStatusOk())
+      status_color = (g_files.LastStatusRows() > 0) ? clrLime : clrGold;
+   else if(StringFind(status, "WAIT") >= 0)
+      status_color = clrOrange;
+   else if(StringFind(status, "START") >= 0)
+      status_color = clrSilver;
+
+   string csv_path = provider
+                     ? g_files.SnapshotFullPath(login)
+                     : (ArraySize(g_provider_accounts) > 0
+                        ? g_files.SnapshotFullPath(g_provider_accounts[0])
+                        : "");
+
+   string last_time = (g_files.LastStatusTime() > 0)
+                      ? TimeToString(g_files.LastStatusTime(), TIME_DATE | TIME_SECONDS)
+                      : "—";
+
+   string algo = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? "ON" : "OFF";
+   color algo_color = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? clrLime : clrOrangeRed;
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t1", 26, clrWhite, 10);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.03");
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t2", 46, provider ? clrDeepSkyBlue : clrViolet, 10);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t2", OBJPROP_TEXT,
+                   "Mode: " + mode + "    Account: " + (string)login);
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t3", 66, status_color, 10);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t3", OBJPROP_TEXT,
+                   "Status: " + status + "    Positions: " + (string)g_files.LastStatusRows());
+
+   if(provider)
+     {
+      ChartLabelCreate(COPIER_PANEL_PREFIX + "t4", 86, clrSilver, 9);
+      ObjectSetString(0, COPIER_PANEL_PREFIX + "t4", OBJPROP_TEXT,
+                      "Writing CSV for receivers on this PC");
+     }
+   else
+     {
+      ChartLabelCreate(COPIER_PANEL_PREFIX + "t4", 86, clrSilver, 9);
+      ObjectSetString(0, COPIER_PANEL_PREFIX + "t4", OBJPROP_TEXT,
+                      "Watching provider: " + InpProviderAccounts);
+     }
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t5", 106, clrGray, 8);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t5", OBJPROP_TEXT,
+                   "CSV: " + ShortPathForChart(csv_path));
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t6", 124, clrGray, 8);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t6", OBJPROP_TEXT,
+                   "Folder: " + ShortPathForChart(g_files.CommonFilesDir()));
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t7", 144, clrSilver, 9);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t7", OBJPROP_TEXT,
+                   "Last sync: " + last_time);
+
+   ChartLabelCreate(COPIER_PANEL_PREFIX + "t8", 162, algo_color, 9);
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t8", OBJPROP_TEXT,
+                   "Algo Trading: " + algo + "    Poll: " + (string)g_timer_ms + " ms");
+
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
@@ -498,6 +666,7 @@ void OnTimer()
    else
       RunReceiverCycle();
 
+   UpdateChartStatus();
    g_remote.SendHeartbeat(InpHeartbeatUrl, InpHeartbeatIntervalSec, InpHttpTimeoutMs);
   }
 
@@ -540,9 +709,11 @@ int OnInit()
      }
 
    g_initialized = true;
-   g_logger.Info(StringFormat("MT5TradeCopier started in %s mode (poll %d ms)",
+   g_logger.Info(StringFormat("MT5TradeCopier v1.03 started in %s mode (poll %d ms)",
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
+   LogStartupPaths();
+   UpdateChartStatus();
    return INIT_SUCCEEDED;
   }
 
@@ -553,6 +724,7 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    g_initialized = false;
+   ClearChartStatus();
    g_logger.Info("MT5TradeCopier stopped.");
   }
 
