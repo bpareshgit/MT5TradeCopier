@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.03"
+#property version   "1.04"
 #property strict
 
 #include "CopierTypes.mqh"
@@ -45,6 +45,7 @@ input bool                      InpFactorLeverage       = false;                
 input string                    InpSymbolMap            = "";                       // Symbol remap (EURUSD=EURUSD.micro;GBPUSD=GBPUSDm)
 input int                       InpSlippagePoints       = 20;                       // Max slippage (points) for orders
 input bool                      InpReceiverRequireHedging = true;                     // Refuse if account is netting
+input bool                      InpFullMirror           = true;                     // Full mirror: open + SL/TP edit + close (recommended)
 
 //--- Remote copy
 input group "=== Remote Copy ==="
@@ -62,14 +63,14 @@ input group "=== Monitoring ==="
 input string                    InpHeartbeatUrl          = "";                        // Heartbeat URL (HTTP GET)
 input int                       InpHeartbeatIntervalSec  = 60;                        // Heartbeat interval (sec)
 
-//--- Risk
+//--- Risk (ignored when Full Mirror is ON, except equity reserve / excluded tickets / direction)
 input group "=== Risk ==="
-input int                       InpMaxPriceDeviationPts  = 50;                        // Skip if price deviates more than (points)
+input int                       InpMaxPriceDeviationPts  = 0;                         // Skip if price deviates more than (points, 0=off)
 input int                       InpMaxTradeAgeMinutes    = 0;                         // Skip trades older than (minutes, 0=off)
 input bool                      InpIgnoreProfitable      = false;                     // Skip trades already in profit on provider
 input ENUM_COPIER_DIRECTION_FILTER InpDirectionFilter    = DIRECTION_BOTH;            // Direction filter
 input string                    InpExcludedTickets       = "";                        // Excluded provider tickets (comma-separated)
-input double                    InpEquityReservePercent  = 10.0;                      // Reserve equity % (stop copying when breached)
+input double                    InpEquityReservePercent  = 0.0;                       // Reserve equity % (0=off; stop new copies when breached)
 input ENUM_COPIER_MASS_CLOSE_MODE InpMassCloseMode       = MASS_CLOSE_AUTO;           // Multiple losing closes at once
 
 //--- Module instances
@@ -363,15 +364,22 @@ void SyncProviderAccount(const long provider_account)
          continue;
         }
 
+      // Full mirror: only honor direction filter + excluded tickets.
+      // Deviation/age/profit filters are the usual reason manual opens "sometimes" never copy.
+      int max_dev = InpFullMirror ? 0 : InpMaxPriceDeviationPts;
+      int max_age = InpFullMirror ? 0 : InpMaxTradeAgeMinutes;
+      bool ignore_profit = InpFullMirror ? false : InpIgnoreProfitable;
+
       if(!g_trade.PassesRiskFilters(pos,
                                     receiver_symbol,
                                     InpDirectionFilter,
-                                    InpMaxPriceDeviationPts,
-                                    InpMaxTradeAgeMinutes,
-                                    InpIgnoreProfitable,
+                                    max_dev,
+                                    max_age,
+                                    ignore_profit,
                                     InpExcludedTickets))
         {
-         g_logger.Debug(StringFormat("Skipped provider ticket %I64u by risk filters", pos.ticket));
+         g_logger.Warn(StringFormat("Skipped provider ticket %I64u by risk filters (symbol=%s)",
+                                    pos.ticket, receiver_symbol));
          continue;
         }
 
@@ -611,7 +619,7 @@ void UpdateChartStatus()
    color algo_color = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? clrLime : clrOrangeRed;
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t1", 26, clrWhite, 10);
-   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.03");
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.04");
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t2", 46, provider ? clrDeepSkyBlue : clrViolet, 10);
    ObjectSetString(0, COPIER_PANEL_PREFIX + "t2", OBJPROP_TEXT,
@@ -709,10 +717,18 @@ int OnInit()
      }
 
    g_initialized = true;
-   g_logger.Info(StringFormat("MT5TradeCopier v1.03 started in %s mode (poll %d ms)",
+   g_logger.Info(StringFormat("MT5TradeCopier v1.04 started in %s mode (poll %d ms)",
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
+   if(InpMode == COPIER_RECEIVER)
+      g_logger.Info(StringFormat("Full mirror: %s (open + SL/TP modify + close)",
+                                 InpFullMirror ? "ON" : "OFF"));
    LogStartupPaths();
+
+   // Provider: publish immediately so receiver is not waiting for first timer tick.
+   if(InpMode == COPIER_PROVIDER)
+      RunProviderCycle();
+
    UpdateChartStatus();
    return INIT_SUCCEEDED;
   }
@@ -729,7 +745,28 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| OnTick is intentionally empty; timer drives sync work.           |
+//| Provider: flush snapshot as soon as a trade opens / modifies /   |
+//| closes so SL/TP edits and manual closes mirror without waiting   |
+//| for the next poll tick.                                          |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+  {
+   if(!g_initialized || InpMode != COPIER_PROVIDER)
+      return;
+
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD ||
+      trans.type == TRADE_TRANSACTION_POSITION ||
+      trans.type == TRADE_TRANSACTION_REQUEST)
+     {
+      RunProviderCycle();
+      UpdateChartStatus();
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| OnTick is intentionally empty; timer + trade events drive sync.  |
 //+------------------------------------------------------------------+
 void OnTick()
   {

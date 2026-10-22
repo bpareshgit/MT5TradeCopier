@@ -2,7 +2,7 @@
 
 [![MetaTrader 5](https://img.shields.io/badge/Platform-MetaTrader%205-blue)](https://www.metatrader5.com/)
 [![MQL5](https://img.shields.io/badge/Language-MQL5-green)](https://www.mql5.com/)
-[![Version](https://img.shields.io/badge/Version-1.03-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
+[![Version](https://img.shields.io/badge/Version-1.04-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).
@@ -39,13 +39,14 @@ Works with manual trades, signals, or **any other EA** running on the provider a
 | Feature | Description |
 |---------|-------------|
 | **Dual mode** | Single EA — choose `PROVIDER` or `RECEIVER` at attach time |
+| **Full mirror** | Open, **SL/TP edits**, partial/full **close** — all mirrored (default ON) |
 | **All symbols** | One chart attachment copies **every** open position on the account |
 | **Local sync** | Shared `Common\Files` snapshot (same machine) |
 | **Remote sync** | Optional FTP upload (provider) + HTTP download (receiver) |
 | **Multi-provider** | Receiver can subscribe to multiple provider account numbers |
 | **Ticket mapping** | Persisted provider→receiver ticket map survives restarts |
 | **Lot sizing** | Same, proportional to balance, or proportional to free margin |
-| **Risk controls** | Deviation filter, age filter, direction filter, equity reserve |
+| **Risk controls** | Optional deviation/age filters (off in Full Mirror) |
 | **Symbol remap** | Map broker-specific symbol names between accounts |
 | **Partial close** | Proportional volume sync when provider partially closes |
 | **On-chart status** | Live panel: mode, handshake, position count, CSV path |
@@ -63,9 +64,9 @@ Works with manual trades, signals, or **any other EA** running on the provider a
 └─────────────────────┘         └──────────────────────────┘         └─────────────────────┘
 ```
 
-1. **Provider** polls all open positions on a timer and writes an atomic CSV snapshot.
-2. **Receiver** reads the snapshot, diffs against a persisted mapping file, and opens/closes/modifies tagged trades only.
-3. Timer-driven sync (`OnTimer`) — the chart symbol does **not** matter.
+1. **Provider** writes an atomic CSV snapshot of all open positions (timer + immediate flush on trade open/modify/close).
+2. **Receiver** reads the snapshot, diffs against a persisted mapping file, and **opens / modifies SL·TP / closes** tagged trades only.
+3. Chart symbol does **not** matter — attach once per terminal.
 
 ---
 
@@ -96,7 +97,7 @@ git clone https://github.com/bpareshgit/MT5TradeCopier.git
    ```
 
 3. Open `MT5TradeCopier.mq5` in MetaEditor
-4. Press **Compile** (F7) — expect **0 errors**, version **1.03**
+4. Press **Compile** (F7) — expect **0 errors**, version **1.04**
 
 All `.mqh` headers live **next to** the `.mq5` file in the same folder.
 
@@ -195,17 +196,18 @@ You can run **MT5TradeCopier** alongside another EA (signal bots, manual trading
 | Factor leverage | Scale lots by leverage ratio |
 | Symbol remap | `EURUSD=EURUSD.micro;XAUUSD=XAUUSDm` |
 | Slippage points | Max slippage for orders |
+| **Full mirror** | **ON (default)** — mirror opens, SL/TP edits, and closes |
 
 ### Risk
 
 | Input | Description |
 |-------|-------------|
-| Max price deviation | Skip if price moved too far (points) |
-| Max trade age | Skip old provider positions (minutes) |
-| Ignore profitable | Skip trades already in profit on provider |
+| Max price deviation | Skip if price moved too far (`0` = off; ignored when Full mirror ON) |
+| Max trade age | Skip old provider positions (minutes; ignored when Full mirror ON) |
+| Ignore profitable | Skip trades already in profit (ignored when Full mirror ON) |
 | Direction filter | Both / buy only / sell only |
 | Excluded tickets | Comma-separated provider tickets to skip |
-| Equity reserve % | Stop copying when margin usage too high |
+| Equity reserve % | Stop new copies when margin usage too high (`0` = off) |
 | Mass close mode | Auto-close or alert when many losers close at once |
 
 Full list is in the EA inputs panel under grouped sections.
@@ -241,7 +243,7 @@ Copy the **entire** `MT5TradeCopier` folder (all 8 files) into `MQL5/Experts/MT5
 
 ### `SYMBOL_VOLUME_DIGITS` compile error
 
-Delete the folder and reinstall from this repo (version **1.03**).
+Delete the folder and reinstall from this repo (version **1.04**).
 
 ### Receiver does not copy
 
@@ -250,11 +252,12 @@ Delete the folder and reinstall from this repo (version **1.03**).
 3. Set **Remote download HTTP** = `false` for local copy
 4. Verify symbol exists on receiver broker (use **Symbol remap**)
 5. Confirm hedging accounts (or disable require-hedging for testing)
+6. Keep **Full mirror = true** so SL/TP edits and closes sync too
 
 ### Receiver skips new trades
 
-- **Max price deviation** — price moved too far from provider entry
-- **Max trade age** — position too old when first seen
+- **Full mirror OFF** + **Max price deviation** — price moved too far from provider entry
+- **Full mirror OFF** + **Max trade age** — position too old when first seen
 - **Equity reserve** — receiver margin limit reached
 - **Direction filter** — buy/sell filter active
 

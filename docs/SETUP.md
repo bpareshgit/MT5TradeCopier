@@ -9,7 +9,7 @@ Use this guide if the EA fails on init, spams warnings, or does not copy trades.
 ## Before you start (checklist)
 
 - [ ] MetaTrader 5 installed and **Algo Trading** enabled (toolbar button green)
-- [ ] EA compiled with **0 errors** in MetaEditor (version **1.03**)
+- [ ] EA compiled with **0 errors** in MetaEditor (version **1.04**)
 - [ ] All 8 files copied to `MQL5/Experts/MT5TradeCopier/`
 - [ ] You know whether you copy **local** (same PC) or **remote** (different PCs)
 - [ ] Provider and receiver account **login numbers** noted
@@ -60,6 +60,7 @@ Same computer, two MT5 terminals?
 | Operating mode | `RECEIVER` |
 | Provider account numbers | provider login, e.g. `12345678` |
 | Poll interval (ms) | `1000` (match provider) |
+| Full mirror | **`true`** (open + SL/TP + close) |
 | Remote download HTTP | **`false`** |
 | Remote upload FTP | `false` |
 | Lot sizing mode | `SAME_AS_PROVIDER` (for testing) |
@@ -189,7 +190,7 @@ undeclared identifier 'SYMBOL_VOLUME_DIGITS'
 **Fix:**
 1. Delete `MQL5/Experts/MT5TradeCopier/` entirely.
 2. Re-copy all 8 files from [GitHub](https://github.com/bpareshgit/MT5TradeCopier).
-3. Compile again (expect version **1.03**, 0 errors).
+3. Compile again (expect version **1.04**, 0 errors).
 
 ---
 
@@ -202,7 +203,7 @@ undeclared identifier 'SYMBOL_VOLUME_DIGITS'
 | No CSV on provider | Provider mode? Trade open on provider? Check `Common\Files\MT5Copier-*.csv` |
 | Wrong provider number | **Provider account numbers** must match provider **login** exactly |
 | Symbol missing on receiver | Add **Symbol remap**, e.g. `XAUUSD=XAUUSDm` |
-| Risk filter blocking | Lower **Max price deviation**, disable **Ignore profitable**, check **Direction filter** |
+| Risk filter blocking | Keep **Full mirror = true** (default). Or set **Max price deviation = 0**, disable **Ignore profitable**, check **Direction filter** |
 | Equity reserve | Reduce **Equity reserve %** or free margin on receiver |
 | Provider netting skipped | Provider snapshot says netting; use hedging provider |
 

@@ -98,7 +98,68 @@ public:
 
       m_trade.SetExpertMagicNumber(magic);
       m_trade.SetDeviationInPoints(slippage_points);
-      m_trade.SetAsyncMode(true);
+      // Sync mode so ResultDeal/position ticket resolve reliably for mappings.
+      m_trade.SetAsyncMode(false);
+     }
+
+   // Normalize provider SL/TP onto the receiver symbol (digits + stop level).
+   bool NormalizeStops(const string symbol,
+                       const ENUM_POSITION_TYPE type,
+                       double &sl,
+                       double &tp) const
+     {
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      if(point <= 0.0)
+         point = 0.00001;
+
+      if(sl > 0.0)
+         sl = NormalizeDouble(sl, digits);
+      if(tp > 0.0)
+         tp = NormalizeDouble(tp, digits);
+
+      int stops_level = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      if(stops_level <= 0)
+         return true;
+
+      double min_dist = stops_level * point;
+      double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+
+      if(type == POSITION_TYPE_BUY)
+        {
+         if(sl > 0.0 && (bid - sl) < min_dist)
+            sl = NormalizeDouble(bid - min_dist, digits);
+         if(tp > 0.0 && (tp - ask) < min_dist)
+            tp = NormalizeDouble(ask + min_dist, digits);
+        }
+      else
+        {
+         if(sl > 0.0 && (sl - ask) < min_dist)
+            sl = NormalizeDouble(ask + min_dist, digits);
+         if(tp > 0.0 && (bid - tp) < min_dist)
+            tp = NormalizeDouble(bid - min_dist, digits);
+        }
+      return true;
+     }
+
+   ulong FindManagedTicket(const string symbol, const string comment) const
+     {
+      int total = PositionsTotal();
+      for(int i = total - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0 || !PositionSelectByTicket(ticket))
+            continue;
+         if(PositionGetInteger(POSITION_MAGIC) != m_magic)
+            continue;
+         if(PositionGetString(POSITION_SYMBOL) != symbol)
+            continue;
+         if(PositionGetString(POSITION_COMMENT) != comment)
+            continue;
+         return ticket;
+        }
+      return 0;
      }
 
    string MapSymbol(const string provider_symbol) const
@@ -249,44 +310,45 @@ public:
       if(lots <= 0.0)
          return false;
 
+      double sl = pos.sl;
+      double tp = pos.tp;
+      NormalizeStops(receiver_symbol, pos.type, sl, tp);
+
       string comment = BuildComment(pos.provider_account, pos.ticket);
       bool ok = false;
 
       if(pos.type == POSITION_TYPE_BUY)
-         ok = m_trade.Buy(lots, receiver_symbol, 0.0, pos.sl, pos.tp, comment);
+         ok = m_trade.Buy(lots, receiver_symbol, 0.0, sl, tp, comment);
       else
-         ok = m_trade.Sell(lots, receiver_symbol, 0.0, pos.sl, pos.tp, comment);
+         ok = m_trade.Sell(lots, receiver_symbol, 0.0, sl, tp, comment);
 
       if(!ok)
         {
          if(m_log != NULL)
             m_log.Error(StringFormat("Open failed %s %.2f: %s",
-                                     receiver_symbol, volume, m_trade.ResultRetcodeDescription()));
+                                     receiver_symbol, lots, m_trade.ResultRetcodeDescription()));
          return false;
         }
 
-      receiver_ticket = m_trade.ResultOrder();
-      if(receiver_ticket == 0)
-         receiver_ticket = m_trade.ResultDeal();
+      // Prefer deal -> position; fall back to comment scan (hedging-safe).
+      ulong deal = m_trade.ResultDeal();
+      if(deal > 0 && HistoryDealSelect(deal))
+         receiver_ticket = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
 
-      // Wait briefly for position ticket in hedging mode.
-      for(int i = 0; i < 20; i++)
+      if(receiver_ticket == 0)
         {
-         if(PositionSelect(receiver_symbol))
+         for(int i = 0; i < 30; i++)
            {
-            if(PositionGetInteger(POSITION_MAGIC) == m_magic &&
-               PositionGetString(POSITION_COMMENT) == comment)
-              {
-               receiver_ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+            receiver_ticket = FindManagedTicket(receiver_symbol, comment);
+            if(receiver_ticket > 0)
                break;
-              }
+            Sleep(50);
            }
-         Sleep(50);
         }
 
       if(m_log != NULL)
-         m_log.Info(StringFormat("Opened %s %.2f ticket %I64u <- provider %I64u",
-                                 receiver_symbol, lots, receiver_ticket, pos.ticket));
+         m_log.Info(StringFormat("Opened %s %.2f ticket %I64u <- provider %I64u (SL=%.5f TP=%.5f)",
+                                 receiver_symbol, lots, receiver_ticket, pos.ticket, sl, tp));
       return (receiver_ticket > 0);
      }
 
@@ -325,10 +387,18 @@ public:
       else
          ok = m_trade.PositionClose(receiver_ticket);
 
-      if(!ok && m_log != NULL)
-         m_log.Error(StringFormat("Close failed ticket %I64u: %s",
-                                  receiver_ticket, m_trade.ResultRetcodeDescription()));
-      return ok;
+      if(!ok)
+        {
+         if(m_log != NULL)
+            m_log.Error(StringFormat("Close failed ticket %I64u: %s",
+                                     receiver_ticket, m_trade.ResultRetcodeDescription()));
+         return false;
+        }
+
+      if(m_log != NULL)
+         m_log.Info(StringFormat("Closed ticket %I64u %s vol=%.2f",
+                                 receiver_ticket, symbol, close_volume));
+      return true;
      }
 
    bool ModifyPosition(const ulong receiver_ticket, const double sl, const double tp)
@@ -340,17 +410,33 @@ public:
       if(!EnsureSymbol(symbol))
          return false;
 
+      ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double new_sl = sl;
+      double new_tp = tp;
+      NormalizeStops(symbol, type, new_sl, new_tp);
+
       double current_sl = PositionGetDouble(POSITION_SL);
       double current_tp = PositionGetDouble(POSITION_TP);
-      if(MathAbs(current_sl - sl) < SymbolInfoDouble(symbol, SYMBOL_POINT) &&
-         MathAbs(current_tp - tp) < SymbolInfoDouble(symbol, SYMBOL_POINT))
+      double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      if(point <= 0.0)
+         point = 0.00001;
+
+      if(MathAbs(current_sl - new_sl) < point && MathAbs(current_tp - new_tp) < point)
          return true;
 
-      bool ok = m_trade.PositionModify(receiver_ticket, sl, tp);
-      if(!ok && m_log != NULL)
-         m_log.Warn(StringFormat("Modify failed ticket %I64u: %s",
-                                 receiver_ticket, m_trade.ResultRetcodeDescription()));
-      return ok;
+      bool ok = m_trade.PositionModify(receiver_ticket, new_sl, new_tp);
+      if(!ok)
+        {
+         if(m_log != NULL)
+            m_log.Warn(StringFormat("Modify failed ticket %I64u: %s",
+                                    receiver_ticket, m_trade.ResultRetcodeDescription()));
+         return false;
+        }
+
+      if(m_log != NULL)
+         m_log.Info(StringFormat("Modified ticket %I64u SL=%.5f TP=%.5f",
+                                 receiver_ticket, new_sl, new_tp));
+      return true;
      }
 
    bool IsManagedPosition(const ulong ticket) const
