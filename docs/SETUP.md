@@ -9,7 +9,7 @@ Use this guide if the EA fails on init, spams warnings, or does not copy trades.
 ## Before you start (checklist)
 
 - [ ] MetaTrader 5 installed and **Algo Trading** enabled (toolbar button green)
-- [ ] EA compiled with **0 errors** in MetaEditor (version **1.04**)
+- [ ] EA compiled with **0 errors** in MetaEditor (version **1.05**)
 - [ ] All 8 files copied to `MQL5/Experts/MT5TradeCopier/`
 - [ ] You know whether you copy **local** (same PC) or **remote** (different PCs)
 - [ ] Provider and receiver account **login numbers** noted
@@ -58,7 +58,7 @@ Same computer, two MT5 terminals?
 | Input | Value |
 |-------|-------|
 | Operating mode | `RECEIVER` |
-| Provider account numbers | provider login, e.g. `12345678` |
+| Provider account numbers | **required** real provider login (placeholder `12345678` is rejected) |
 | Poll interval (ms) | `1000` (match provider) |
 | Full mirror | **`true`** (open + SL/TP + close) |
 | Remote download HTTP | **`false`** |
@@ -161,16 +161,36 @@ initializing of MT5TradeCopier failed with code 1
 
 ---
 
-### Error 4: Receiver mode requires at least one provider account number
+### Error 4: Provider account numbers required / placeholder rejected
 
-**Log message:**
+**Log messages:**
 ```text
-[ERROR] Receiver mode requires at least one provider account number.
+[ERROR] [HANDSHAKE] RECEIVER ERROR — Provider account numbers is REQUIRED.
+[ERROR] [HANDSHAKE] RECEIVER ERROR — provider account 12345678 is a placeholder, not a real login.
 ```
 
-**Cause:** **Provider account numbers** input is empty.
+**Cause:** Input left empty, or still set to an example like `12345678`.
 
-**Fix:** Enter provider login, e.g. `12345678`. Multiple providers: `12345,67890`.
+**Fix:** On the **PROVIDER** Experts log, copy the real login (e.g. `128862787`) into receiver **Provider account numbers**. Multiple: `128862787,7004348`.
+
+---
+
+### Error 4b: Handshake not done (account mismatch)
+
+**Log messages / chart:**
+```text
+[ERROR] [HANDSHAKE] RECEIVER ERROR — handshake NOT done. Snapshot missing for provider account …
+[ERROR] [HANDSHAKE] ACCOUNT MISMATCH? Found other provider snapshot(s) on this PC: 128862787 …
+Status: HANDSHAKE FAILED
+```
+Plus a one-time **Alert** popup.
+
+**Cause:** Receiver is watching the wrong provider login (or provider EA not running).
+
+**Fix:**
+1. Set **Provider account numbers** = exact provider login from the other terminal.
+2. Confirm provider log says `WRITES snapshot: ...\MT5Copier-<that-login>-positions.csv`.
+3. Both terminals on the same PC (local copy) so they share `Common\Files`.
 
 ---
 
@@ -190,7 +210,7 @@ undeclared identifier 'SYMBOL_VOLUME_DIGITS'
 **Fix:**
 1. Delete `MQL5/Experts/MT5TradeCopier/` entirely.
 2. Re-copy all 8 files from [GitHub](https://github.com/bpareshgit/MT5TradeCopier).
-3. Compile again (expect version **1.04**, 0 errors).
+3. Compile again (expect version **1.05**, 0 errors).
 
 ---
 
@@ -201,7 +221,7 @@ undeclared identifier 'SYMBOL_VOLUME_DIGITS'
 | Symptom | Check |
 |---------|--------|
 | No CSV on provider | Provider mode? Trade open on provider? Check `Common\Files\MT5Copier-*.csv` |
-| Wrong provider number | **Provider account numbers** must match provider **login** exactly |
+| `HANDSHAKE FAILED` / account mismatch | **Provider account numbers** must match provider **login** exactly |
 | Symbol missing on receiver | Add **Symbol remap**, e.g. `XAUUSD=XAUUSDm` |
 | Risk filter blocking | Keep **Full mirror = true** (default). Or set **Max price deviation = 0**, disable **Ignore profitable**, check **Direction filter** |
 | Equity reserve | Reduce **Equity reserve %** or free margin on receiver |

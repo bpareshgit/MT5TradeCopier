@@ -2,7 +2,7 @@
 
 [![MetaTrader 5](https://img.shields.io/badge/Platform-MetaTrader%205-blue)](https://www.metatrader5.com/)
 [![MQL5](https://img.shields.io/badge/Language-MQL5-green)](https://www.mql5.com/)
-[![Version](https://img.shields.io/badge/Version-1.04-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
+[![Version](https://img.shields.io/badge/Version-1.05-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).
@@ -97,7 +97,7 @@ git clone https://github.com/bpareshgit/MT5TradeCopier.git
    ```
 
 3. Open `MT5TradeCopier.mq5` in MetaEditor
-4. Press **Compile** (F7) — expect **0 errors**, version **1.04**
+4. Press **Compile** (F7) — expect **0 errors**, version **1.05**
 
 All `.mqh` headers live **next to** the `.mq5` file in the same folder.
 
@@ -128,7 +128,7 @@ Terminal\Common\Files\MT5Copier-{yourLogin}-positions.csv
 | Input | Value |
 |-------|-------|
 | Operating mode | `RECEIVER` |
-| Provider account numbers | provider login, e.g. `12345678` |
+| Provider account numbers | **required** — real provider login (not a placeholder) |
 | Lot sizing mode | `SAME_AS_PROVIDER` |
 | Remote download HTTP | `false` |
 | Symbol remap | only if symbols differ between brokers |
@@ -243,7 +243,7 @@ Copy the **entire** `MT5TradeCopier` folder (all 8 files) into `MQL5/Experts/MT5
 
 ### `SYMBOL_VOLUME_DIGITS` compile error
 
-Delete the folder and reinstall from this repo (version **1.04**).
+Delete the folder and reinstall from this repo (version **1.05**).
 
 ### Receiver does not copy
 

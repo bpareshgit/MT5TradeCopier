@@ -294,7 +294,42 @@ public:
       s_last_info = now;
      }
 
-   // INFO when receiver first reads a valid snapshot; WARN if file missing (throttled).
+   // Scan Common\Files for other provider snapshots (helps catch account mismatch).
+   string DiscoverOtherProviderAccounts(const long expected_account) const
+     {
+      string found = "";
+      string fname = "";
+      long handle = FileFindFirst(COPIER_FILE_PREFIX + "-*-positions.csv", fname, FILE_COMMON);
+      if(handle == INVALID_HANDLE)
+         return "";
+
+      string prefix = COPIER_FILE_PREFIX + "-";
+      string suffix = "-positions.csv";
+
+      do
+        {
+         if(StringFind(fname, prefix) != 0)
+            continue;
+         int suf = StringFind(fname, suffix);
+         if(suf < 0)
+            continue;
+
+         string mid = StringSubstr(fname, StringLen(prefix), suf - StringLen(prefix));
+         long acct = (long)StringToInteger(mid);
+         if(acct <= 0 || acct == expected_account)
+            continue;
+
+         if(StringLen(found) > 0)
+            found += ", ";
+         found += IntegerToString(acct);
+        }
+      while(FileFindNext(handle, fname));
+
+      FileFindClose(handle);
+      return found;
+     }
+
+   // INFO when linked; ERROR while handshake incomplete (throttled + one Alert).
    void LogReceiverHandshake(const long provider_account,
                              const bool read_ok,
                              const SProviderMeta &meta,
@@ -305,6 +340,7 @@ public:
 
       static long     s_providers[];
       static bool     s_linked[];
+      static bool     s_alerted[];
       static int      s_last_rows[];
       static datetime s_last_missing[];
       static int      s_count = 0;
@@ -324,10 +360,12 @@ public:
          s_count++;
          ArrayResize(s_providers, s_count);
          ArrayResize(s_linked, s_count);
+         ArrayResize(s_alerted, s_count);
          ArrayResize(s_last_rows, s_count);
          ArrayResize(s_last_missing, s_count);
          s_providers[idx] = provider_account;
          s_linked[idx] = false;
+         s_alerted[idx] = false;
          s_last_rows[idx] = -1;
          s_last_missing[idx] = 0;
         }
@@ -338,19 +376,64 @@ public:
          m_status_rows = 0;
          m_status_account = provider_account;
          m_status_time = TimeCurrent();
-         m_status_text = "WAITING FOR CSV";
+         m_status_text = "HANDSHAKE FAILED";
 
          datetime now = TimeCurrent();
-         if(s_last_missing[idx] == 0 || (now - s_last_missing[idx]) >= 60)
+         if(s_last_missing[idx] == 0 || (now - s_last_missing[idx]) >= 30)
            {
-            m_log.Warn(StringFormat("[HANDSHAKE] RECEIVER waiting — snapshot not found for provider %d",
-                                    provider_account));
-            m_log.Warn("[PATH] Expected file: " + SnapshotFullPath(provider_account));
-            m_log.Warn("[PATH] Fix: attach PROVIDER copier on account " + (string)provider_account +
-                       " (same PC → Common\\Files is shared)");
+            string others = DiscoverOtherProviderAccounts(provider_account);
+
+            m_log.Error(StringFormat(
+               "[HANDSHAKE] RECEIVER ERROR — handshake NOT done. Snapshot missing for provider account %d",
+               provider_account));
+            m_log.Error("[PATH] Expected file: " + SnapshotFullPath(provider_account));
+            m_log.Error(
+               "[HANDSHAKE] Fix: Provider account numbers MUST equal the PROVIDER login exactly. "
+               "Attach PROVIDER on that account (same PC → Common\\Files).");
+
+            if(StringLen(others) > 0)
+              {
+               m_log.Error(StringFormat(
+                  "[HANDSHAKE] ACCOUNT MISMATCH? Found other provider snapshot(s) on this PC: %s — "
+                  "set Provider account numbers to that login.",
+                  others));
+              }
+            else
+              {
+               m_log.Error(
+                  "[HANDSHAKE] No other provider CSV found in Common\\Files — "
+                  "start PROVIDER first, or check you are on the same PC.");
+              }
+
+            if(!s_alerted[idx])
+              {
+               string alert_msg = StringFormat(
+                  "MT5TradeCopier RECEIVER: HANDSHAKE FAILED — provider %d not found. "
+                  "Set Provider account numbers to the real PROVIDER login.",
+                  provider_account);
+               if(StringLen(others) > 0)
+                  alert_msg += " Found snapshot(s) for: " + others;
+               Alert(alert_msg);
+               s_alerted[idx] = true;
+              }
+
             s_last_missing[idx] = now;
            }
          s_linked[idx] = false;
+         return;
+        }
+
+      // Header account must match the file we asked for.
+      if(meta.account > 0 && meta.account != provider_account)
+        {
+         m_status_ok = false;
+         m_status_rows = 0;
+         m_status_account = provider_account;
+         m_status_time = TimeCurrent();
+         m_status_text = "HANDSHAKE FAILED";
+         m_log.Error(StringFormat(
+            "[HANDSHAKE] RECEIVER ERROR — account mismatch inside CSV: expected provider %d, file says %d",
+            provider_account, meta.account));
          return;
         }
 
@@ -366,10 +449,11 @@ public:
 
       if(first_link)
         {
-         m_log.Info(StringFormat("[HANDSHAKE] RECEIVER linked to provider %d — CSV read OK",
+         m_log.Info(StringFormat("[HANDSHAKE] RECEIVER linked to provider %d — CSV read OK (handshake done)",
                                  provider_account));
          m_log.Info("[PATH] Reading snapshot: " + SnapshotFullPath(provider_account));
          s_linked[idx] = true;
+         s_alerted[idx] = false;
         }
 
       if(first_link || rows_changed)
@@ -474,6 +558,15 @@ public:
          if(m_log != NULL)
             m_log.Warn(StringFormat("Row count mismatch for provider %d; skipping read", account));
          ArrayResize(positions, 0);
+         return false;
+        }
+
+      if(meta.account > 0 && meta.account != account)
+        {
+         if(m_log != NULL)
+            LogReceiverHandshake(account, true, meta, ArraySize(positions));
+         ArrayResize(positions, 0);
+         meta.valid = false;
          return false;
         }
 

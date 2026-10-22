@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.04"
+#property version   "1.05"
 #property strict
 
 #include "CopierTypes.mqh"
@@ -39,7 +39,7 @@ input bool                      InpProviderRequireHedging = true;               
 
 //--- Receiver
 input group "=== Receiver ==="
-input string                    InpProviderAccounts     = "12345678";               // Provider account numbers (comma-separated)
+input string                    InpProviderAccounts     = "";                       // REQUIRED: provider MT5 login(s), comma-separated
 input ENUM_COPIER_LOT_MODE      InpLotMode              = LOT_SAME_AS_PROVIDER;     // Lot sizing mode
 input bool                      InpFactorLeverage       = false;                    // Factor account leverage into lot sizing
 input string                    InpSymbolMap            = "";                       // Symbol remap (EURUSD=EURUSD.micro;GBPUSD=GBPUSDm)
@@ -112,6 +112,56 @@ bool ParseProviderAccounts(const string csv)
       g_provider_accounts[n] = account;
      }
    return (ArraySize(g_provider_accounts) > 0);
+  }
+
+// Placeholder / example logins that must never be used as a real provider.
+bool IsPlaceholderProviderAccount(const long account)
+  {
+   return (account == 12345678 ||
+           account == 11111111 ||
+           account == 22222222 ||
+           account == 99999999);
+  }
+
+// Receiver: provider account list is compulsory and must look real.
+bool ValidateReceiverProviderAccounts()
+  {
+   if(!ParseProviderAccounts(InpProviderAccounts))
+     {
+      g_logger.Error("[HANDSHAKE] RECEIVER ERROR — Provider account numbers is REQUIRED.");
+      g_logger.Error("[HANDSHAKE] Enter the PROVIDER terminal login exactly (Experts log on provider shows the account).");
+      Alert("MT5TradeCopier RECEIVER: set Provider account numbers to the real PROVIDER login.");
+      return false;
+     }
+
+   long self = AccountInfoInteger(ACCOUNT_LOGIN);
+   for(int i = 0; i < ArraySize(g_provider_accounts); i++)
+     {
+      long provider = g_provider_accounts[i];
+
+      if(IsPlaceholderProviderAccount(provider))
+        {
+         g_logger.Error(StringFormat(
+            "[HANDSHAKE] RECEIVER ERROR — provider account %d is a placeholder, not a real login.",
+            provider));
+         g_logger.Error("[HANDSHAKE] Open the PROVIDER Experts log and copy its account number into this input.");
+         Alert(StringFormat(
+            "MT5TradeCopier RECEIVER: %d is a placeholder. Set Provider account numbers to the real PROVIDER login.",
+            provider));
+         return false;
+        }
+
+      if(provider == self)
+        {
+         g_logger.Error(StringFormat(
+            "[HANDSHAKE] RECEIVER ERROR — provider account %d is THIS receiver account. Use the other terminal's login.",
+            provider));
+         Alert("MT5TradeCopier RECEIVER: Provider account cannot be this same account.");
+         return false;
+        }
+     }
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -600,6 +650,8 @@ void UpdateChartStatus()
    color status_color = clrOrange;
    if(g_files.LastStatusOk())
       status_color = (g_files.LastStatusRows() > 0) ? clrLime : clrGold;
+   else if(StringFind(status, "HANDSHAKE") >= 0 || StringFind(status, "ERROR") >= 0)
+      status_color = clrOrangeRed;
    else if(StringFind(status, "WAIT") >= 0)
       status_color = clrOrange;
    else if(StringFind(status, "START") >= 0)
@@ -619,7 +671,7 @@ void UpdateChartStatus()
    color algo_color = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? clrLime : clrOrangeRed;
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t1", 26, clrWhite, 10);
-   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.04");
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.05");
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t2", 46, provider ? clrDeepSkyBlue : clrViolet, 10);
    ObjectSetString(0, COPIER_PANEL_PREFIX + "t2", OBJPROP_TEXT,
@@ -637,9 +689,12 @@ void UpdateChartStatus()
      }
    else
      {
-      ChartLabelCreate(COPIER_PANEL_PREFIX + "t4", 86, clrSilver, 9);
-      ObjectSetString(0, COPIER_PANEL_PREFIX + "t4", OBJPROP_TEXT,
-                      "Watching provider: " + InpProviderAccounts);
+      color watch_clr = g_files.LastStatusOk() ? clrSilver : clrOrangeRed;
+      ChartLabelCreate(COPIER_PANEL_PREFIX + "t4", 86, watch_clr, 9);
+      string watch = g_files.LastStatusOk()
+                     ? ("Watching provider: " + InpProviderAccounts)
+                     : ("HANDSHAKE NOT DONE — check provider login: " + InpProviderAccounts);
+      ObjectSetString(0, COPIER_PANEL_PREFIX + "t4", OBJPROP_TEXT, watch);
      }
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t5", 106, clrGray, 8);
@@ -691,11 +746,8 @@ int OnInit()
    if(!ValidateAccountType())
       return INIT_FAILED;
 
-   if(InpMode == COPIER_RECEIVER && !ParseProviderAccounts(InpProviderAccounts))
-     {
-      g_logger.Error("Receiver mode requires at least one provider account number.");
+   if(InpMode == COPIER_RECEIVER && !ValidateReceiverProviderAccounts())
       return INIT_FAILED;
-     }
 
    int interval = InpPollIntervalMs;
    if(interval < 200)
@@ -717,7 +769,7 @@ int OnInit()
      }
 
    g_initialized = true;
-   g_logger.Info(StringFormat("MT5TradeCopier v1.04 started in %s mode (poll %d ms)",
+   g_logger.Info(StringFormat("MT5TradeCopier v1.05 started in %s mode (poll %d ms)",
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
    if(InpMode == COPIER_RECEIVER)
@@ -726,8 +778,11 @@ int OnInit()
    LogStartupPaths();
 
    // Provider: publish immediately so receiver is not waiting for first timer tick.
+   // Receiver: attempt handshake immediately so ERROR shows without waiting for timer.
    if(InpMode == COPIER_PROVIDER)
       RunProviderCycle();
+   else
+      RunReceiverCycle();
 
    UpdateChartStatus();
    return INIT_SUCCEEDED;

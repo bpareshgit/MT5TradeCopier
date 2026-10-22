@@ -155,7 +155,7 @@ If you need **sub-200 ms** reaction, the EA would need a code change:
 - **`OnTradeTransaction`** on provider → write snapshot immediately when a position opens/closes (event-driven + optional 200 ms backup poll)
 - **Reduce `Sleep(50)`** wait in receiver open logic (currently up to ~1 s ticket lookup)
 
-Provider already flushes the snapshot on trade events in **v1.04** (`OnTradeTransaction`). Receiver still polls; use a low poll interval (200–500 ms) for local copy.
+Provider already flushes the snapshot on trade events (`OnTradeTransaction`). Receiver still polls; use a low poll interval (200–500 ms) for local copy.
 
 ---
 
