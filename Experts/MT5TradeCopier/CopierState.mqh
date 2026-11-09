@@ -20,6 +20,16 @@ private:
       return StringFormat("%s_%d_%d.csv", COPIER_STATE_PREFIX, receiver_account, provider_account);
      }
 
+   bool ProviderTicketOpen(const ulong provider_ticket, const ulong &provider_open_tickets[]) const
+     {
+      for(int i = 0; i < ArraySize(provider_open_tickets); i++)
+        {
+         if(provider_open_tickets[i] == provider_ticket)
+            return true;
+        }
+      return false;
+     }
+
 public:
    CCopierState()
      {
@@ -68,6 +78,28 @@ public:
             return i;
         }
       return -1;
+     }
+
+   bool IsLocalClosed(const ulong provider_ticket) const
+     {
+      int idx = FindByProviderTicket(provider_ticket);
+      if(idx < 0)
+         return false;
+      return m_mappings[idx].local_closed;
+     }
+
+   void MarkLocalClosed(const int index)
+     {
+      if(index < 0 || index >= ArraySize(m_mappings))
+         return;
+
+      m_mappings[index].local_closed = true;
+      m_mappings[index].receiver_ticket = 0;
+      m_mappings[index].copied_volume = 0.0;
+
+      if(m_log != NULL)
+         m_log.Info(StringFormat("Local close locked — will not reopen provider ticket %I64u until master closes it",
+                                 m_mappings[index].provider_ticket));
      }
 
    void Upsert(const STicketMapping &mapping)
@@ -129,6 +161,7 @@ public:
          map.receiver_symbol = parts[4];
          map.provider_volume = StringToDouble(parts[5]);
          map.copied_volume = StringToDouble(parts[6]);
+         map.local_closed = (ArraySize(parts) >= 8 && StringToInteger(parts[7]) != 0);
 
          int n = ArraySize(m_mappings);
          ArrayResize(m_mappings, n + 1);
@@ -163,36 +196,60 @@ public:
          return false;
 
       FileWriteString(handle,
-                      "provider_account,provider_ticket,receiver_ticket,provider_symbol,receiver_symbol,provider_volume,copied_volume\r\n");
+                      "provider_account,provider_ticket,receiver_ticket,provider_symbol,receiver_symbol,provider_volume,copied_volume,local_closed\r\n");
       for(int i = 0; i < ArraySize(m_mappings); i++)
         {
          STicketMapping map = m_mappings[i];
          FileWriteString(handle,
-                         StringFormat("%d,%I64u,%I64u,%s,%s,%.8f,%.8f\r\n",
+                         StringFormat("%d,%I64u,%I64u,%s,%s,%.8f,%.8f,%d\r\n",
                                       map.provider_account,
                                       map.provider_ticket,
                                       map.receiver_ticket,
                                       CsvEscape(map.provider_symbol),
                                       CsvEscape(map.receiver_symbol),
                                       map.provider_volume,
-                                      map.copied_volume));
+                                      map.copied_volume,
+                                      map.local_closed ? 1 : 0));
         }
       FileClose(handle);
       return true;
      }
 
-   // Drop mappings whose receiver positions no longer exist.
-   void ReconcileOpenPositions(const long magic_number)
+   // Drop dead mappings; if slave closed while master still open, lock against reopen.
+   void ReconcileOpenPositions(const long magic_number,
+                               const ulong &provider_open_tickets[],
+                               const bool respect_local_close)
      {
       for(int i = ArraySize(m_mappings) - 1; i >= 0; i--)
         {
+         if(m_mappings[i].local_closed)
+           {
+            // Keep lock only while provider ticket is still open.
+            if(!ProviderTicketOpen(m_mappings[i].provider_ticket, provider_open_tickets))
+              {
+               if(m_log != NULL)
+                  m_log.Info(StringFormat("Clearing local-close lock — provider ticket %I64u is gone",
+                                          m_mappings[i].provider_ticket));
+               RemoveByIndex(i);
+              }
+            continue;
+           }
+
          if(!PositionSelectByTicket(m_mappings[i].receiver_ticket))
            {
-            if(m_log != NULL)
-               m_log.Debug(StringFormat("Removing stale mapping provider %I64u -> receiver %I64u",
-                                        m_mappings[i].provider_ticket,
-                                        m_mappings[i].receiver_ticket));
-            RemoveByIndex(i);
+            if(respect_local_close &&
+               ProviderTicketOpen(m_mappings[i].provider_ticket, provider_open_tickets))
+              {
+               MarkLocalClosed(i);
+              }
+            else
+              {
+               if(m_log != NULL)
+                  m_log.Debug(StringFormat("Removing stale mapping provider %I64u -> receiver %I64u",
+                                           m_mappings[i].provider_ticket,
+                                           m_mappings[i].receiver_ticket));
+               RemoveByIndex(i);
+              }
            }
          else if(PositionGetInteger(POSITION_MAGIC) != magic_number)
            {

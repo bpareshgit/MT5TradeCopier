@@ -40,6 +40,7 @@ Works with manual trades, signals, or **any other EA** running on the provider a
 |---------|-------------|
 | **Dual mode** | Single EA — choose `PROVIDER` or `RECEIVER` at attach time |
 | **Full mirror** | Open, **SL/TP edits**, partial/full **close** — all mirrored (default ON) |
+| **Local close lock** | Closing on the slave does **not** reopen while that master ticket is still open |
 | **All symbols** | One chart attachment copies **every** open position on the account |
 | **Local sync** | Shared `Common\Files` snapshot (same machine) |
 | **Remote sync** | Optional FTP upload (provider) + HTTP download (receiver) |
@@ -197,6 +198,7 @@ You can run **MT5TradeCopier** alongside another EA (signal bots, manual trading
 | Symbol remap | `EURUSD=EURUSD.micro;XAUUSD=XAUUSDm` |
 | Slippage points | Max slippage for orders |
 | **Full mirror** | **ON (default)** — mirror opens, SL/TP edits, and closes |
+| **Respect local close** | **ON (default)** — if you close on slave, do not reopen while master still open |
 
 ### Risk
 

@@ -46,6 +46,7 @@ input string                    InpSymbolMap            = "";                   
 input int                       InpSlippagePoints       = 20;                       // Max slippage (points) for orders
 input bool                      InpReceiverRequireHedging = true;                     // Refuse if account is netting
 input bool                      InpFullMirror           = true;                     // Full mirror: open + SL/TP edit + close (recommended)
+input bool                      InpRespectLocalClose    = true;                     // If you close on slave, do not reopen while master still open
 
 //--- Remote copy
 input group "=== Remote Copy ==="
@@ -301,6 +302,7 @@ bool EnsureProviderSnapshot(const long provider_account)
 //| 1) Load persisted ticket mappings (provider_ticket->receiver).   |
 //| 2) Read provider snapshot CSV from Common\Files.                 |
 //| 3) For each provider position:                                   |
+//|    - local_closed lock: skip (slave closed manually)             |
 //|    - existing mapping: adjust volume / SL / TP                   |
 //|    - no mapping: open new managed trade if risk filters pass     |
 //| 4) For mappings missing from snapshot: close receiver trade        |
@@ -327,26 +329,22 @@ void SyncProviderAccount(const long provider_account)
       return;
      }
 
-   CCopierState state;
-   state.SetLogger(&g_logger);
-   state.SetContext(AccountInfoInteger(ACCOUNT_LOGIN), provider_account);
-   state.Load();
-   state.ReconcileOpenPositions(InpMagicNumber);
-
-   // Index provider positions by ticket for O(1) lookup.
+   // Index provider positions by ticket before reconcile (needed for local-close lock).
    ulong provider_tickets[];
-   int provider_index[];
    ArrayResize(provider_tickets, 0);
-   ArrayResize(provider_index, 0);
 
    for(int i = 0; i < ArraySize(provider_positions); i++)
      {
       int n = ArraySize(provider_tickets);
       ArrayResize(provider_tickets, n + 1);
-      ArrayResize(provider_index, n + 1);
       provider_tickets[n] = provider_positions[i].ticket;
-      provider_index[n] = i;
      }
+
+   CCopierState state;
+   state.SetLogger(&g_logger);
+   state.SetContext(AccountInfoInteger(ACCOUNT_LOGIN), provider_account);
+   state.Load();
+   state.ReconcileOpenPositions(InpMagicNumber, provider_tickets, InpRespectLocalClose);
 
    // Step 3: reconcile open / modified provider positions.
    for(int i = 0; i < ArraySize(provider_positions); i++)
@@ -362,9 +360,19 @@ void SyncProviderAccount(const long provider_account)
          STicketMapping mapping;
          state.Get(map_idx, mapping);
 
+         // Slave closed this copy manually — keep locked while master is open.
+         if(mapping.local_closed)
+           {
+            g_logger.Debug(StringFormat("Skip reopen provider %I64u (local close lock)", pos.ticket));
+            continue;
+           }
+
          if(!PositionSelectByTicket(mapping.receiver_ticket))
            {
-            state.RemoveByIndex(map_idx);
+            if(InpRespectLocalClose)
+               state.MarkLocalClosed(map_idx);
+            else
+               state.RemoveByIndex(map_idx);
             continue;
            }
 
@@ -446,6 +454,7 @@ void SyncProviderAccount(const long provider_account)
       mapping.receiver_symbol = receiver_symbol;
       mapping.provider_volume = pos.volume;
       mapping.copied_volume = lot;
+      mapping.local_closed = false;
       state.Upsert(mapping);
      }
 
@@ -773,8 +782,12 @@ int OnInit()
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
    if(InpMode == COPIER_RECEIVER)
+     {
       g_logger.Info(StringFormat("Full mirror: %s (open + SL/TP modify + close)",
                                  InpFullMirror ? "ON" : "OFF"));
+      g_logger.Info(StringFormat("Respect local close: %s (manual slave close will not reopen)",
+                                 InpRespectLocalClose ? "ON" : "OFF"));
+     }
    LogStartupPaths();
 
    // Provider: publish immediately so receiver is not waiting for first timer tick.

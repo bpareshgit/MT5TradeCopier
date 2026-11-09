@@ -75,6 +75,7 @@ struct SProviderMeta
   };
 
 // Persisted mapping between provider and receiver tickets.
+// local_closed=true: slave closed manually while provider still open — do not reopen.
 struct STicketMapping
   {
    long              provider_account;
@@ -84,6 +85,7 @@ struct STicketMapping
    string            receiver_symbol;
    double            provider_volume;
    double            copied_volume;
+   bool              local_closed;
   };
 
 #endif // COPIER_TYPES_MQH
