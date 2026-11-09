@@ -102,6 +102,44 @@ public:
                                  m_mappings[index].provider_ticket));
      }
 
+   // Lock by provider ticket (creates a lock row if mapping was never saved yet).
+   void LockLocalClose(const long provider_account,
+                       const ulong provider_ticket,
+                       const string provider_symbol = "",
+                       const string receiver_symbol = "")
+     {
+      int idx = FindByProviderTicket(provider_ticket);
+      if(idx >= 0)
+        {
+         MarkLocalClosed(idx);
+         return;
+        }
+
+      STicketMapping map;
+      map.provider_account = provider_account;
+      map.provider_ticket = provider_ticket;
+      map.receiver_ticket = 0;
+      map.provider_symbol = provider_symbol;
+      map.receiver_symbol = receiver_symbol;
+      map.provider_volume = 0.0;
+      map.copied_volume = 0.0;
+      map.local_closed = true;
+      Upsert(map);
+
+      if(m_log != NULL)
+         m_log.Info(StringFormat("Local close locked — will not reopen provider ticket %I64u until master closes it",
+                                 provider_ticket));
+     }
+
+   bool LockLocalCloseByReceiverTicket(const ulong receiver_ticket)
+     {
+      int idx = FindByReceiverTicket(receiver_ticket);
+      if(idx < 0)
+         return false;
+      MarkLocalClosed(idx);
+      return true;
+     }
+
    void Upsert(const STicketMapping &mapping)
      {
       int idx = FindByProviderTicket(mapping.provider_ticket);

@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.05"
+#property version   "1.06"
 #property strict
 
 #include "CopierTypes.mqh"
@@ -82,8 +82,139 @@ CCopierTrade    g_trade;
 
 long            g_provider_accounts[];
 bool            g_initialized = false;
+bool            g_sync_closing = false;   // true while EA closes copies (not a manual slave close)
 uint            g_timer_ms = 0;
 const string    COPIER_PANEL_PREFIX = "MT5CopierPanel_";
+
+//+------------------------------------------------------------------+
+//| Parse MCP|{providerAccount}|{providerTicket} from position comment|
+//+------------------------------------------------------------------+
+bool ParseMcpComment(const string comment, long &provider_account, ulong &provider_ticket)
+  {
+   provider_account = 0;
+   provider_ticket = 0;
+
+   string prefix = COPIER_COMMENT_PREFIX + "|";
+   if(StringFind(comment, prefix) != 0)
+      return false;
+
+   string parts[];
+   if(StringSplit(comment, '|', parts) < 3)
+      return false;
+
+   provider_account = (long)StringToInteger(parts[1]);
+   provider_ticket = (ulong)StringToInteger(parts[2]);
+   return (provider_account > 0 && provider_ticket > 0);
+  }
+
+//+------------------------------------------------------------------+
+//| True when provider snapshot still lists this ticket.             |
+//+------------------------------------------------------------------+
+bool ProviderTicketStillOpen(const long provider_account, const ulong provider_ticket)
+  {
+   SProviderPosition positions[];
+   SProviderMeta meta;
+   meta.valid = false;
+   if(!g_files.ReadProviderSnapshot(provider_account, positions, meta))
+      return true; // fail-safe: assume still open so we lock rather than reopen
+
+   for(int i = 0; i < ArraySize(positions); i++)
+     {
+      if(positions[i].ticket == provider_ticket)
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Immediate lock when user closes a copied trade on the slave.     |
+//| Saved to state right away so the next poll cannot reopen it.     |
+//+------------------------------------------------------------------+
+void HandleReceiverManualClose(const ulong position_ticket, const ulong deal_ticket)
+  {
+   if(!InpRespectLocalClose || g_sync_closing)
+      return;
+
+   if(deal_ticket > 0 && HistoryDealSelect(deal_ticket))
+     {
+      long entry = HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY && entry != DEAL_ENTRY_INOUT)
+         return;
+
+      long magic = HistoryDealGetInteger(deal_ticket, DEAL_MAGIC);
+      if(magic != InpMagicNumber && magic != 0)
+         return;
+     }
+
+   // Partial close — position still open; keep syncing the remainder.
+   if(position_ticket > 0 && PositionSelectByTicket(position_ticket))
+      return;
+
+   long receiver_login = AccountInfoInteger(ACCOUNT_LOGIN);
+   string deal_comment = "";
+   if(deal_ticket > 0 && HistoryDealSelect(deal_ticket))
+      deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
+
+   for(int i = 0; i < ArraySize(g_provider_accounts); i++)
+     {
+      long provider_account = g_provider_accounts[i];
+      CCopierState state;
+      state.SetLogger(&g_logger);
+      state.SetContext(receiver_login, provider_account);
+      state.Load();
+
+      int idx = state.FindByReceiverTicket(position_ticket);
+      if(idx >= 0)
+        {
+         STicketMapping mapping;
+         state.Get(idx, mapping);
+         if(!ProviderTicketStillOpen(provider_account, mapping.provider_ticket))
+            return; // master already flat — mirrored close, no lock needed
+
+         state.MarkLocalClosed(idx);
+         state.Save();
+         return;
+        }
+
+      // Fallback: any mapped copy whose receiver legs are fully gone while master is open.
+      bool locked = false;
+      for(int m = state.Count() - 1; m >= 0; m--)
+        {
+         STicketMapping mapping;
+         state.Get(m, mapping);
+         if(mapping.local_closed)
+            continue;
+         if(PositionSelectByTicket(mapping.receiver_ticket))
+            continue;
+         if(g_trade.ManagedVolumeForProvider(provider_account, mapping.provider_ticket) > 0.0)
+            continue;
+         if(!ProviderTicketStillOpen(provider_account, mapping.provider_ticket))
+            continue;
+
+         state.MarkLocalClosed(m);
+         locked = true;
+        }
+      if(locked)
+        {
+         state.Save();
+         return;
+        }
+
+      // Last resort: MCP comment on the deal (not always present on exit deals).
+      long parsed_account = 0;
+      ulong parsed_ticket = 0;
+      if(!ParseMcpComment(deal_comment, parsed_account, parsed_ticket))
+         continue;
+      if(parsed_account != provider_account)
+         continue;
+      if(!ProviderTicketStillOpen(provider_account, parsed_ticket))
+         continue;
+
+      state.LockLocalClose(provider_account, parsed_ticket);
+      state.Save();
+      return;
+     }
+  }
 
 //+------------------------------------------------------------------+
 //| Parse comma-separated account list                               |
@@ -367,7 +498,8 @@ void SyncProviderAccount(const long provider_account)
             continue;
            }
 
-         if(!PositionSelectByTicket(mapping.receiver_ticket))
+         double managed_vol = g_trade.ManagedVolumeForProvider(provider_account, pos.ticket);
+         if(!PositionSelectByTicket(mapping.receiver_ticket) || managed_vol <= 0.0)
            {
             if(InpRespectLocalClose)
                state.MarkLocalClosed(map_idx);
@@ -376,7 +508,7 @@ void SyncProviderAccount(const long provider_account)
             continue;
            }
 
-         double receiver_volume = g_trade.ManagedVolumeForProvider(provider_account, pos.ticket);
+         double receiver_volume = managed_vol;
          double target_volume = g_trade.CalculateLotSize(pos, meta, InpLotMode, InpFactorLeverage);
          target_volume = g_trade.NormalizeVolume(receiver_symbol, target_volume);
 
@@ -387,7 +519,11 @@ void SyncProviderAccount(const long provider_account)
             double desired = g_trade.NormalizeVolume(receiver_symbol, receiver_volume * ratio);
             double close_amount = receiver_volume - desired;
             if(close_amount > 0.0)
+              {
+               g_sync_closing = true;
                g_trade.ClosePosition(mapping.receiver_ticket, close_amount);
+               g_sync_closing = false;
+              }
             receiver_volume = g_trade.ManagedVolumeForProvider(provider_account, pos.ticket);
            }
          // Additional volume when provider position grows.
@@ -520,8 +656,10 @@ void SyncProviderAccount(const long provider_account)
      }
    else
      {
+      g_sync_closing = true;
       for(int c = 0; c < ArraySize(close_tickets); c++)
          g_trade.ClosePosition(close_tickets[c]);
+      g_sync_closing = false;
 
       for(int i = state.Count() - 1; i >= 0; i--)
         {
@@ -680,7 +818,7 @@ void UpdateChartStatus()
    color algo_color = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? clrLime : clrOrangeRed;
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t1", 26, clrWhite, 10);
-   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.05");
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.06");
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t2", 46, provider ? clrDeepSkyBlue : clrViolet, 10);
    ObjectSetString(0, COPIER_PANEL_PREFIX + "t2", OBJPROP_TEXT,
@@ -778,7 +916,7 @@ int OnInit()
      }
 
    g_initialized = true;
-   g_logger.Info(StringFormat("MT5TradeCopier v1.05 started in %s mode (poll %d ms)",
+   g_logger.Info(StringFormat("MT5TradeCopier v1.06 started in %s mode (poll %d ms)",
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
    if(InpMode == COPIER_RECEIVER)
@@ -813,23 +951,33 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Provider: flush snapshot as soon as a trade opens / modifies /   |
-//| closes so SL/TP edits and manual closes mirror without waiting   |
-//| for the next poll tick.                                          |
+//| Provider: flush snapshot on trade events.                        |
+//| Receiver: lock immediately when user manually closes a copy.     |
 //+------------------------------------------------------------------+
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
   {
-   if(!g_initialized || InpMode != COPIER_PROVIDER)
+   if(!g_initialized)
       return;
 
-   if(trans.type == TRADE_TRANSACTION_DEAL_ADD ||
-      trans.type == TRADE_TRANSACTION_POSITION ||
-      trans.type == TRADE_TRANSACTION_REQUEST)
+   if(InpMode == COPIER_PROVIDER)
      {
-      RunProviderCycle();
-      UpdateChartStatus();
+      if(trans.type == TRADE_TRANSACTION_DEAL_ADD ||
+         trans.type == TRADE_TRANSACTION_POSITION ||
+         trans.type == TRADE_TRANSACTION_REQUEST)
+        {
+         RunProviderCycle();
+         UpdateChartStatus();
+        }
+      return;
+     }
+
+   // Receiver: catch manual slave closes before the next poll can reopen.
+   if(InpMode == COPIER_RECEIVER && InpRespectLocalClose)
+     {
+      if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal > 0)
+         HandleReceiverManualClose(trans.position, trans.deal);
      }
   }
 
