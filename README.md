@@ -2,7 +2,7 @@
 
 [![MetaTrader 5](https://img.shields.io/badge/Platform-MetaTrader%205-blue)](https://www.metatrader5.com/)
 [![MQL5](https://img.shields.io/badge/Language-MQL5-green)](https://www.mql5.com/)
-[![Version](https://img.shields.io/badge/Version-1.06-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
+[![Version](https://img.shields.io/badge/Version-1.07-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).

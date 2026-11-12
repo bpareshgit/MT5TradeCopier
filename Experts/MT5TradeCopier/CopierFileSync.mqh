@@ -211,6 +211,9 @@ public:
       string full = header + body;
       written_body = full;
 
+      // Write temp first, then overwrite final in place.
+      // NEVER delete the final CSV first — that creates a gap where receivers
+      // see "snapshot missing" and spam HANDSHAKE FAILED / Alerts.
       string temp = TempName(account);
       string final_name = SnapshotName(account);
 
@@ -221,19 +224,15 @@ public:
          return false;
         }
 
-      if(FileIsExist(final_name, FILE_COMMON))
-         FileDelete(final_name, FILE_COMMON);
-
-      if(!FileMove(temp, FILE_COMMON, final_name, FILE_COMMON))
+      if(!WriteAllText(final_name, full, true))
         {
-         // Fallback: direct overwrite if move is unavailable.
-         if(!WriteAllText(final_name, full, true))
-           {
-            if(m_log != NULL)
-               m_log.Error("Failed publishing snapshot: " + final_name);
-            return false;
-           }
+         if(m_log != NULL)
+            m_log.Error("Failed publishing snapshot: " + final_name);
+         return false;
         }
+
+      if(FileIsExist(temp, FILE_COMMON))
+         FileDelete(temp, FILE_COMMON);
 
       m_status_ok = true;
       m_status_rows = count;
@@ -329,7 +328,7 @@ public:
       return found;
      }
 
-   // INFO when linked; ERROR while handshake incomplete (throttled + one Alert).
+   // INFO when linked; ERROR only after sustained missing (not during CSV rewrite gaps).
    void LogReceiverHandshake(const long provider_account,
                              const bool read_ok,
                              const SProviderMeta &meta,
@@ -342,8 +341,11 @@ public:
       static bool     s_linked[];
       static bool     s_alerted[];
       static int      s_last_rows[];
-      static datetime s_last_missing[];
+      static datetime s_missing_since[];
+      static datetime s_last_error_log[];
       static int      s_count = 0;
+      const int       GRACE_SEC = 5;   // ignore brief gaps while provider rewrites CSV
+      const int       ERROR_EVERY = 60;
 
       int idx = -1;
       for(int i = 0; i < s_count; i++)
@@ -362,64 +364,85 @@ public:
          ArrayResize(s_linked, s_count);
          ArrayResize(s_alerted, s_count);
          ArrayResize(s_last_rows, s_count);
-         ArrayResize(s_last_missing, s_count);
+         ArrayResize(s_missing_since, s_count);
+         ArrayResize(s_last_error_log, s_count);
          s_providers[idx] = provider_account;
          s_linked[idx] = false;
          s_alerted[idx] = false;
          s_last_rows[idx] = -1;
-         s_last_missing[idx] = 0;
+         s_missing_since[idx] = 0;
+         s_last_error_log[idx] = 0;
         }
 
       if(!read_ok)
         {
+         datetime now = TimeCurrent();
+         if(s_missing_since[idx] == 0)
+            s_missing_since[idx] = now;
+
+         int missing_for = (int)(now - s_missing_since[idx]);
+
+         // Brief gap (provider rewrite) — keep last good status, no ERROR/Alert.
+         if(s_linked[idx] && missing_for < GRACE_SEC)
+           {
+            m_status_account = provider_account;
+            m_status_time = now;
+            m_status_text = "LINKED (refreshing)";
+            m_status_ok = true;
+            m_status_rows = MathMax(0, s_last_rows[idx]);
+            return;
+           }
+
          m_status_ok = false;
          m_status_rows = 0;
          m_status_account = provider_account;
-         m_status_time = TimeCurrent();
+         m_status_time = now;
          m_status_text = "HANDSHAKE FAILED";
 
-         datetime now = TimeCurrent();
-         if(s_last_missing[idx] == 0 || (now - s_last_missing[idx]) >= 30)
+         bool should_log = (s_last_error_log[idx] == 0 || (now - s_last_error_log[idx]) >= ERROR_EVERY);
+         if(should_log)
            {
             string others = DiscoverOtherProviderAccounts(provider_account);
 
             m_log.Error(StringFormat(
-               "[HANDSHAKE] RECEIVER ERROR — handshake NOT done. Snapshot missing for provider account %d",
-               provider_account));
+               "[HANDSHAKE] RECEIVER ERROR — snapshot missing for provider account %d (for %d sec)",
+               provider_account, missing_for));
             m_log.Error("[PATH] Expected file: " + SnapshotFullPath(provider_account));
-            m_log.Error(
-               "[HANDSHAKE] Fix: Provider account numbers MUST equal the PROVIDER login exactly. "
-               "Attach PROVIDER on that account (same PC → Common\\Files).");
 
-            if(StringLen(others) > 0)
+            // Only suggest account mismatch if we have NEVER linked this provider.
+            if(!s_linked[idx])
               {
-               m_log.Error(StringFormat(
-                  "[HANDSHAKE] ACCOUNT MISMATCH? Found other provider snapshot(s) on this PC: %s — "
-                  "set Provider account numbers to that login.",
-                  others));
+               m_log.Error(
+                  "[HANDSHAKE] Fix: Provider account numbers MUST equal the PROVIDER login exactly. "
+                  "Attach PROVIDER on that account (same PC → Common\\Files).");
+               if(StringLen(others) > 0)
+                  m_log.Error(StringFormat(
+                     "[HANDSHAKE] ACCOUNT MISMATCH? Found other provider snapshot(s): %s",
+                     others));
+               else
+                  m_log.Error(
+                     "[HANDSHAKE] No other provider CSV found — start PROVIDER first, or same-PC Common\\Files.");
+
+               if(!s_alerted[idx])
+                 {
+                  string alert_msg = StringFormat(
+                     "MT5TradeCopier RECEIVER: provider %d snapshot not found. Check PROVIDER is running.",
+                     provider_account);
+                  if(StringLen(others) > 0)
+                     alert_msg += " Other snapshots: " + others;
+                  Alert(alert_msg);
+                  s_alerted[idx] = true;
+                 }
               }
             else
               {
-               m_log.Error(
-                  "[HANDSHAKE] No other provider CSV found in Common\\Files — "
-                  "start PROVIDER first, or check you are on the same PC.");
+               m_log.Warn(
+                  "[HANDSHAKE] Provider was linked before — CSV missing now. "
+                  "Is PROVIDER still running / Algo Trading ON?");
               }
 
-            if(!s_alerted[idx])
-              {
-               string alert_msg = StringFormat(
-                  "MT5TradeCopier RECEIVER: HANDSHAKE FAILED — provider %d not found. "
-                  "Set Provider account numbers to the real PROVIDER login.",
-                  provider_account);
-               if(StringLen(others) > 0)
-                  alert_msg += " Found snapshot(s) for: " + others;
-               Alert(alert_msg);
-               s_alerted[idx] = true;
-              }
-
-            s_last_missing[idx] = now;
+            s_last_error_log[idx] = now;
            }
-         s_linked[idx] = false;
          return;
         }
 
@@ -437,7 +460,7 @@ public:
          return;
         }
 
-      s_last_missing[idx] = 0;
+      s_missing_since[idx] = 0;
       bool first_link = !s_linked[idx];
       bool rows_changed = (position_count != s_last_rows[idx]);
 
@@ -453,7 +476,6 @@ public:
                                  provider_account));
          m_log.Info("[PATH] Reading snapshot: " + SnapshotFullPath(provider_account));
          s_linked[idx] = true;
-         s_alerted[idx] = false;
         }
 
       if(first_link || rows_changed)
@@ -474,8 +496,20 @@ public:
       ArrayResize(positions, 0);
       meta.valid = false;
 
-      string content;
-      if(!ReadAllText(SnapshotName(account), content, true))
+      // Retry briefly — provider may be mid-overwrite at 200ms poll.
+      string content = "";
+      bool got = false;
+      for(int attempt = 0; attempt < 4; attempt++)
+        {
+         if(ReadAllText(SnapshotName(account), content, true) && StringLen(content) > 0)
+           {
+            got = true;
+            break;
+           }
+         Sleep(25);
+        }
+
+      if(!got)
         {
          if(m_log != NULL)
            {
@@ -590,15 +624,17 @@ public:
    bool WriteDownloadedSnapshot(const long account, const string content)
      {
       string temp = TempName(account);
+      string final_name = SnapshotName(account);
+
       if(!WriteAllText(temp, content, true))
          return false;
 
-      string final_name = SnapshotName(account);
-      if(FileIsExist(final_name, FILE_COMMON))
-         FileDelete(final_name, FILE_COMMON);
+      // Overwrite in place — do not delete final first (same race as provider write).
+      if(!WriteAllText(final_name, content, true))
+         return false;
 
-      if(!FileMove(temp, FILE_COMMON, final_name, FILE_COMMON))
-         return WriteAllText(final_name, content, true);
+      if(FileIsExist(temp, FILE_COMMON))
+         FileDelete(temp, FILE_COMMON);
       return true;
      }
 

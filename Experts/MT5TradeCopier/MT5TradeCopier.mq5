@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.06"
+#property version   "1.07"
 #property strict
 
 #include "CopierTypes.mqh"
@@ -818,7 +818,7 @@ void UpdateChartStatus()
    color algo_color = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? clrLime : clrOrangeRed;
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t1", 26, clrWhite, 10);
-   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.06");
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.07");
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t2", 46, provider ? clrDeepSkyBlue : clrViolet, 10);
    ObjectSetString(0, COPIER_PANEL_PREFIX + "t2", OBJPROP_TEXT,
@@ -916,7 +916,7 @@ int OnInit()
      }
 
    g_initialized = true;
-   g_logger.Info(StringFormat("MT5TradeCopier v1.06 started in %s mode (poll %d ms)",
+   g_logger.Info(StringFormat("MT5TradeCopier v1.07 started in %s mode (poll %d ms)",
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
    if(InpMode == COPIER_RECEIVER)
