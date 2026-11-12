@@ -12,7 +12,7 @@
 //| - Hedging provider accounts require hedging receiver accounts.   |
 //+------------------------------------------------------------------+
 #property copyright "MT5 Trade Copier"
-#property version   "1.07"
+#property version   "1.08"
 #property strict
 
 #include "CopierTypes.mqh"
@@ -23,9 +23,13 @@
 #include "CopierState.mqh"
 #include "CopierTrade.mqh"
 
+//--- 1) Master account — first input so receivers always set it
+input group "=== 1. Master account (REQUIRED for Receiver) ==="
+input string                    InpProviderAccounts     = ""; // Master account number (REQUIRED). Copy FROM this MT5 login. Example: 128862787  |  Several masters: 128862787,7004348
+
 //--- General
-input group "=== General ==="
-input ENUM_COPIER_MODE          InpMode                 = COPIER_RECEIVER;          // Operating mode
+input group "=== 2. General ==="
+input ENUM_COPIER_MODE          InpMode                 = COPIER_RECEIVER;          // Operating mode: PROVIDER (master) or RECEIVER (slave)
 input int                       InpPollIntervalMs       = 1000;                     // Poll interval (ms)
 input long                      InpMagicNumber          = 56001501;                 // Magic number for copied trades
 input ENUM_COPIER_LOG_LEVEL     InpLogLevel             = COPIER_LOG_INFO;          // Log level
@@ -34,12 +38,11 @@ input int                       InpLogMaxKb             = 512;                  
 input bool                      InpShowChartStatus      = true;                     // Show live status on chart
 
 //--- Provider
-input group "=== Provider ==="
+input group "=== 3. Provider (master terminal) ==="
 input bool                      InpProviderRequireHedging = true;                   // Refuse if account is netting
 
 //--- Receiver
-input group "=== Receiver ==="
-input string                    InpProviderAccounts     = "";                       // REQUIRED: provider MT5 login(s), comma-separated
+input group "=== 4. Receiver (slave terminal) ==="
 input ENUM_COPIER_LOT_MODE      InpLotMode              = LOT_SAME_AS_PROVIDER;     // Lot sizing mode
 input bool                      InpFactorLeverage       = false;                    // Factor account leverage into lot sizing
 input string                    InpSymbolMap            = "";                       // Symbol remap (EURUSD=EURUSD.micro;GBPUSD=GBPUSDm)
@@ -49,7 +52,7 @@ input bool                      InpFullMirror           = true;                 
 input bool                      InpRespectLocalClose    = true;                     // If you close on slave, do not reopen while master still open
 
 //--- Remote copy
-input group "=== Remote Copy ==="
+input group "=== 5. Remote Copy ==="
 input bool                      InpRemoteUploadFtp       = false;                     // Provider: upload snapshot via FTP
 input string                    InpFtpRemotePath         = "";                        // Provider: FTP remote path (SendFTP)
 input bool                      InpRemoteDownloadHttp    = false;                     // Receiver: download snapshot via HTTP
@@ -60,12 +63,12 @@ input int                       InpHttpTimeoutMs         = 5000;                
 input int                       InpRemoteMinIntervalMs   = 2000;                      // Min interval between remote I/O (ms)
 
 //--- Monitoring
-input group "=== Monitoring ==="
+input group "=== 6. Monitoring ==="
 input string                    InpHeartbeatUrl          = "";                        // Heartbeat URL (HTTP GET)
 input int                       InpHeartbeatIntervalSec  = 60;                        // Heartbeat interval (sec)
 
 //--- Risk (ignored when Full Mirror is ON, except equity reserve / excluded tickets / direction)
-input group "=== Risk ==="
+input group "=== 7. Risk ==="
 input int                       InpMaxPriceDeviationPts  = 0;                         // Skip if price deviates more than (points, 0=off)
 input int                       InpMaxTradeAgeMinutes    = 0;                         // Skip trades older than (minutes, 0=off)
 input bool                      InpIgnoreProfitable      = false;                     // Skip trades already in profit on provider
@@ -255,14 +258,14 @@ bool IsPlaceholderProviderAccount(const long account)
            account == 99999999);
   }
 
-// Receiver: provider account list is compulsory and must look real.
+// Receiver: master account number is compulsory and must look real.
 bool ValidateReceiverProviderAccounts()
   {
    if(!ParseProviderAccounts(InpProviderAccounts))
      {
-      g_logger.Error("[HANDSHAKE] RECEIVER ERROR — Provider account numbers is REQUIRED.");
-      g_logger.Error("[HANDSHAKE] Enter the PROVIDER terminal login exactly (Experts log on provider shows the account).");
-      Alert("MT5TradeCopier RECEIVER: set Provider account numbers to the real PROVIDER login.");
+      g_logger.Error("[HANDSHAKE] RECEIVER ERROR — Master account number is REQUIRED.");
+      g_logger.Error("[HANDSHAKE] Open the MASTER (PROVIDER) terminal → copy its account login into input #1.");
+      Alert("MT5TradeCopier RECEIVER: set Master account number (input #1) to the MASTER terminal login.");
       return false;
      }
 
@@ -274,11 +277,11 @@ bool ValidateReceiverProviderAccounts()
       if(IsPlaceholderProviderAccount(provider))
         {
          g_logger.Error(StringFormat(
-            "[HANDSHAKE] RECEIVER ERROR — provider account %d is a placeholder, not a real login.",
+            "[HANDSHAKE] RECEIVER ERROR — %d is a placeholder, not a real master login.",
             provider));
-         g_logger.Error("[HANDSHAKE] Open the PROVIDER Experts log and copy its account number into this input.");
+         g_logger.Error("[HANDSHAKE] Use the real MASTER account number from the provider Experts log / Navigator.");
          Alert(StringFormat(
-            "MT5TradeCopier RECEIVER: %d is a placeholder. Set Provider account numbers to the real PROVIDER login.",
+            "MT5TradeCopier RECEIVER: %d is a placeholder. Set Master account number to the real MASTER login.",
             provider));
          return false;
         }
@@ -286,9 +289,9 @@ bool ValidateReceiverProviderAccounts()
       if(provider == self)
         {
          g_logger.Error(StringFormat(
-            "[HANDSHAKE] RECEIVER ERROR — provider account %d is THIS receiver account. Use the other terminal's login.",
+            "[HANDSHAKE] RECEIVER ERROR — master account %d is THIS same (slave) account. Use the other terminal's login.",
             provider));
-         Alert("MT5TradeCopier RECEIVER: Provider account cannot be this same account.");
+         Alert("MT5TradeCopier RECEIVER: Master account number cannot be this same account.");
          return false;
         }
      }
@@ -818,7 +821,7 @@ void UpdateChartStatus()
    color algo_color = TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? clrLime : clrOrangeRed;
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t1", 26, clrWhite, 10);
-   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.07");
+   ObjectSetString(0, COPIER_PANEL_PREFIX + "t1", OBJPROP_TEXT, "MT5 Trade Copier  v1.08");
 
    ChartLabelCreate(COPIER_PANEL_PREFIX + "t2", 46, provider ? clrDeepSkyBlue : clrViolet, 10);
    ObjectSetString(0, COPIER_PANEL_PREFIX + "t2", OBJPROP_TEXT,
@@ -916,7 +919,7 @@ int OnInit()
      }
 
    g_initialized = true;
-   g_logger.Info(StringFormat("MT5TradeCopier v1.07 started in %s mode (poll %d ms)",
+   g_logger.Info(StringFormat("MT5TradeCopier v1.08 started in %s mode (poll %d ms)",
                               (InpMode == COPIER_PROVIDER ? "PROVIDER" : "RECEIVER"),
                               interval));
    if(InpMode == COPIER_RECEIVER)

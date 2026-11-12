@@ -58,7 +58,7 @@ Same computer, two MT5 terminals?
 | Input | Value |
 |-------|-------|
 | Operating mode | `RECEIVER` |
-| Provider account numbers | **required** real provider login (placeholder `12345678` is rejected) |
+| **Master account number** (1st input) | **REQUIRED** — MASTER/PROVIDER MT5 login (placeholder `12345678` is rejected) |
 | Poll interval (ms) | `1000` (match provider) |
 | Full mirror | **`true`** (open + SL/TP + close) |
 | Remote download HTTP | **`false`** |
@@ -171,7 +171,7 @@ initializing of MT5TradeCopier failed with code 1
 
 **Cause:** Input left empty, or still set to an example like `12345678`.
 
-**Fix:** On the **PROVIDER** Experts log, copy the real login (e.g. `128862787`) into receiver **Provider account numbers**. Multiple: `128862787,7004348`.
+**Fix:** On the **MASTER/PROVIDER** terminal, copy the real login (e.g. `128862787`) into receiver input #1 **Master account number**. Multiple: `128862787,7004348`.
 
 ---
 
@@ -188,7 +188,7 @@ Plus a one-time **Alert** popup.
 **Cause:** Receiver is watching the wrong provider login (or provider EA not running).
 
 **Fix:**
-1. Set **Provider account numbers** = exact provider login from the other terminal.
+1. Set **Master account number** (input #1) = exact MASTER login from the other terminal.
 2. Confirm provider log says `WRITES snapshot: ...\MT5Copier-<that-login>-positions.csv`.
 3. Both terminals on the same PC (local copy) so they share `Common\Files`.
 

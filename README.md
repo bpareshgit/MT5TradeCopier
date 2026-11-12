@@ -2,7 +2,7 @@
 
 [![MetaTrader 5](https://img.shields.io/badge/Platform-MetaTrader%205-blue)](https://www.metatrader5.com/)
 [![MQL5](https://img.shields.io/badge/Language-MQL5-green)](https://www.mql5.com/)
-[![Version](https://img.shields.io/badge/Version-1.07-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
+[![Version](https://img.shields.io/badge/Version-1.08-orange)](Experts/MT5TradeCopier/MT5TradeCopier.mq5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A MetaTrader 5 Expert Advisor that copies **all open positions** from a **Provider** account to one or more **Receiver** accounts — on the same PC (local file sync) or across machines (FTP + HTTP).
@@ -129,7 +129,7 @@ Terminal\Common\Files\MT5Copier-{yourLogin}-positions.csv
 | Input | Value |
 |-------|-------|
 | Operating mode | `RECEIVER` |
-| Provider account numbers | **required** — real provider login (not a placeholder) |
+| **Master account number** (input #1) | **required** — MASTER/PROVIDER MT5 login to copy FROM (e.g. `128862787`) |
 | Lot sizing mode | `SAME_AS_PROVIDER` |
 | Remote download HTTP | `false` |
 | Symbol remap | only if symbols differ between brokers |
@@ -192,7 +192,7 @@ You can run **MT5TradeCopier** alongside another EA (signal bots, manual trading
 
 | Input | Description |
 |-------|-------------|
-| Provider account numbers | Comma-separated, e.g. `12345,67890` |
+| **Master account number** | **REQUIRED (1st input).** MT5 login of the MASTER terminal you copy FROM. Example: `128862787`. Several: `128862787,7004348` |
 | Lot sizing mode | Same / balance / free margin proportional |
 | Factor leverage | Scale lots by leverage ratio |
 | Symbol remap | `EURUSD=EURUSD.micro;XAUUSD=XAUUSDm` |
