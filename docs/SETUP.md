@@ -1,292 +1,292 @@
 # Setup & troubleshooting guide
 
-Step-by-step setup for **MT5 Trade Copier**, plus fixes for the most common errors seen in the Experts log.
-
-Use this guide if the EA fails on init, spams warnings, or does not copy trades.
+Step-by-step setup for **MT5 Trade Copier v1.08**, plus fixes for common Experts-log errors.
 
 ---
 
-## Before you start (checklist)
+## Before you start
 
-- [ ] MetaTrader 5 installed and **Algo Trading** enabled (toolbar button green)
-- [ ] EA compiled with **0 errors** in MetaEditor (version **1.05**)
-- [ ] All 8 files copied to `MQL5/Experts/MT5TradeCopier/`
-- [ ] You know whether you copy **local** (same PC) or **remote** (different PCs)
-- [ ] Provider and receiver account **login numbers** noted
-- [ ] **Hedging** accounts preferred (see [Error 1](#error-1-receiver-requires-a-hedging-account) below)
+- [ ] MetaTrader 5 installed  
+- [ ] **Algo Trading** enabled (toolbar button green) on both terminals  
+- [ ] EA compiled with **0 errors** in MetaEditor (**version 1.08**)  
+- [ ] Full folder copied to `MQL5/Experts/MT5TradeCopier/` (all `.mq5` + `.mqh` files)  
+- [ ] You know your **master** and **slave** account login numbers  
+- [ ] Prefer **hedging** accounts  
+
+### Words
+
+| Word | Meaning |
+|------|---------|
+| **Master / Provider** | Account where you open trades |
+| **Slave / Receiver** | Account that copies those trades |
+| **Master account number** | Input **#1** on the slave — the master’s MT5 login |
 
 ---
 
-## Choose your setup path
+## Choose local or remote
 
 ```
 Same computer, two MT5 terminals?
-├── YES → Use LOCAL COPY (Remote HTTP = false, FTP = false)
-└── NO  → Use REMOTE COPY (FTP on provider + HTTP on receiver)
+├── YES → LOCAL COPY  (FTP = false, HTTP = false)   ← start here
+└── NO  → REMOTE COPY (FTP on master + HTTP on slave)
 ```
 
 ---
 
-## Local copy setup (same PC) — recommended for first test
+## Local copy (same PC)
 
-### Provider terminal
+### 1) Master terminal (PROVIDER)
 
-1. Attach **MT5TradeCopier** to any chart (symbol does not matter).
-2. Set inputs:
+1. Attach **MT5TradeCopier** to any chart.  
+2. Set:
 
 | Input | Value |
 |-------|-------|
 | Operating mode | `PROVIDER` |
-| Poll interval (ms) | `1000` |
+| Poll interval (ms) | `1000` (or `200` for faster) |
 | Remote upload FTP | **`false`** |
-| Provider require hedging | `true` (or `false` only if netting account) |
 
-3. Click OK. Experts log should show:
+3. Experts log should show something like:
+
    ```text
-   [INFO] MT5TradeCopier started in PROVIDER mode (poll 1000 ms)
-   ```
-4. Open a **small manual trade**. Confirm file exists:
-   ```text
-   File → Open Data Folder → Common\Files\MT5Copier-{providerLogin}-positions.csv
+   [INFO] MT5TradeCopier v1.08 started in PROVIDER mode (poll 1000 ms)
+   [HANDSHAKE] PROVIDER ready on account 128862787
    ```
 
-### Receiver terminal
+4. Open a small test trade. Confirm:
 
-1. Attach **MT5TradeCopier** to any chart.
-2. Set inputs:
+   ```text
+   File → Open Data Folder → Common\Files\MT5Copier-128862787-positions.csv
+   ```
+
+   (Use **your** master login in the file name.)
+
+### 2) Slave terminal (RECEIVER)
+
+1. Attach **MT5TradeCopier** to any chart.  
+2. Set:
 
 | Input | Value |
 |-------|-------|
+| **1. Master account number** | **REQUIRED** — e.g. `128862787` (exact master login) |
 | Operating mode | `RECEIVER` |
-| **Master account number** (1st input) | **REQUIRED** — MASTER/PROVIDER MT5 login (placeholder `12345678` is rejected) |
-| Poll interval (ms) | `1000` (match provider) |
-| Full mirror | **`true`** (open + SL/TP + close) |
+| Poll interval (ms) | same as master |
+| Full mirror | **`true`** |
+| Respect local close | **`true`** |
 | Remote download HTTP | **`false`** |
-| Remote upload FTP | `false` |
-| Lot sizing mode | `SAME_AS_PROVIDER` (for testing) |
-| Receiver require hedging | `true` (see Error 1 if init fails) |
-| Symbol remap | only if broker symbols differ |
+| Lot sizing mode | `SAME_AS_PROVIDER` |
+| Symbol remap | only if symbol names differ |
 
-3. Experts log should show:
+3. Good log:
+
    ```text
-   [INFO] MT5TradeCopier started in RECEIVER mode (poll 1000 ms)
+   [INFO] MT5TradeCopier v1.08 started in RECEIVER mode
+   [INFO] Full mirror: ON
+   [INFO] Respect local close: ON
+   [HANDSHAKE] RECEIVER linked to provider 128862787 — CSV read OK
    ```
-4. Within ~1–2 seconds, receiver should mirror provider positions.
+
+4. Within about 1 second the slave should mirror the master trade.
+
+### Quick test checklist
+
+| Action on master | Expected on slave |
+|------------------|-------------------|
+| Open buy/sell | Same side opens |
+| Change SL / TP | SL / TP updates |
+| Close trade | Slave closes |
+| Close only on slave | Stays closed (does not reopen) |
 
 ---
 
-## Remote copy setup (different PCs)
+## Remote copy (different PCs)
 
-### Provider
+### Master
 
 | Input | Value |
 |-------|-------|
 | Operating mode | `PROVIDER` |
 | Remote upload FTP | `true` |
-| FTP remote path | your server path (optional) |
+| FTP remote path | optional |
 
-Configure **Tools → Options → FTP** (server, login, password).
+Also configure **Tools → Options → FTP**.
 
-### Receiver
+### Slave
 
 | Input | Value |
 |-------|-------|
+| **Master account number** | real master login |
 | Operating mode | `RECEIVER` |
 | Remote download HTTP | `true` |
-| HTTP download URL | full URL to CSV, e.g. `https://example.com/MT5Copier-12345678-positions.csv` |
-| HTTP username / password | if your server requires basic auth |
+| HTTP download URL | URL to the CSV (may use `{account}`) |
 
-Add the URL under **Tools → Options → Expert Advisors → Allow WebRequest**.
+Allow the URL under **Tools → Options → Expert Advisors → Allow WebRequest**.
 
 ---
 
 ## Common errors & fixes
 
-### Error 1: Receiver requires a hedging account
+### Error 1: Master account number is REQUIRED
 
-**Log message:**
+**Log:**
 ```text
-[ERROR] Receiver requires a hedging account to mirror individual tickets safely.
-[INFO] MT5TradeCopier stopped.
+[ERROR] [HANDSHAKE] RECEIVER ERROR — Master account number is REQUIRED.
+```
+
+**Cause:** Input #1 is empty.
+
+**Fix:** Paste the **master** MT5 login into **Master account number** (first input).  
+Example: `128862787`  
+Several masters: `128862787,7004348`
+
+---
+
+### Error 2: Placeholder login rejected
+
+**Log:**
+```text
+… is a placeholder, not a real master login.
+```
+
+**Cause:** Still using an example like `12345678`.
+
+**Fix:** Use the real login from the **master** Experts log / Navigator.
+
+---
+
+### Error 3: Handshake failed / snapshot missing
+
+**Log / chart:**
+```text
+[ERROR] Snapshot missing for provider account …
+Status: HANDSHAKE FAILED
+```
+
+**Cause:** Wrong master login, or provider EA not running / not writing CSV.
+
+**Fix:**
+1. Set **Master account number** = exact master login.  
+2. On master, confirm CSV: `Common\Files\MT5Copier-<that-login>-positions.csv`.  
+3. Same PC for local copy (shared `Common\Files`).  
+4. Algo Trading ON on master.
+
+**Note:** Brief “LINKED (refreshing)” is normal while the master rewrites the CSV. Real failures only after the file stays missing for several seconds.
+
+---
+
+### Error 4: Receiver requires a hedging account
+
+**Log:**
+```text
+[ERROR] Receiver requires a hedging account …
 initializing of MT5TradeCopier failed with code 1
 ```
 
-**Cause:** Receiver account is **netting**, not hedging. Default setting blocks startup.
+**Fix (recommended):** Use a hedging account.  
+**Fix (testing only):** Set **Receiver require hedging** = `false` (ticket-level copy is weaker on netting).
 
-**Not caused by:** market closed, weekend, or holidays.
-
-**Fix (recommended):**
-1. Open or switch to a **hedging** MT5 account with your broker.
-2. Re-attach the EA on that account.
-
-**Fix (testing only):**
-- Set **Receiver require hedging** = `false`
-- Ticket-level copy is unreliable on netting accounts.
-
-**How to check account type:** Open two opposite trades on the same symbol. If they merge into one position → netting. If both stay open → hedging.
+**Check:** Two opposite trades on one symbol — if they merge → netting; if both stay → hedging.
 
 ---
 
-### Error 2: Remote HTTP enabled but URL is empty
+### Error 5: Remote HTTP enabled but URL is empty
 
-**Log message:**
-```text
-[WARN] Remote HTTP enabled but URL is empty.
-```
-(repeats every poll interval)
+**Cause:** HTTP = true but URL blank.
 
-**Cause:** **Remote download HTTP** = `true` but **HTTP download URL** is blank.
-
-**Fix for local copy (same PC):**
-- Set **Remote download HTTP** = `false`
-- Leave URL empty
-- Receiver reads from `Common\Files` automatically
-
-**Fix for remote copy:**
-- Set a valid **HTTP download URL**
-- Whitelist URL in terminal WebRequest settings
+**Local copy fix:** set **Remote download HTTP** = `false`.  
+**Remote fix:** set a valid URL and whitelist it for WebRequest.
 
 ---
 
-### Error 3: Provider requires a hedging account
+### Error 6: Compile — `CopierTypes.mqh not found`
 
-**Log message:**
-```text
-[ERROR] Provider requires a hedging account. Disable netting or use hedging account.
-```
-
-**Cause:** Provider runs in netting mode with **Provider require hedging** = `true`.
-
-**Fix:** Use hedging provider account, or set **Provider require hedging** = `false`.
-
----
-
-### Error 4: Provider account numbers required / placeholder rejected
-
-**Log messages:**
-```text
-[ERROR] [HANDSHAKE] RECEIVER ERROR — Provider account numbers is REQUIRED.
-[ERROR] [HANDSHAKE] RECEIVER ERROR — provider account 12345678 is a placeholder, not a real login.
-```
-
-**Cause:** Input left empty, or still set to an example like `12345678`.
-
-**Fix:** On the **MASTER/PROVIDER** terminal, copy the real login (e.g. `128862787`) into receiver input #1 **Master account number**. Multiple: `128862787,7004348`.
-
----
-
-### Error 4b: Handshake not done (account mismatch)
-
-**Log messages / chart:**
-```text
-[ERROR] [HANDSHAKE] RECEIVER ERROR — handshake NOT done. Snapshot missing for provider account …
-[ERROR] [HANDSHAKE] ACCOUNT MISMATCH? Found other provider snapshot(s) on this PC: 128862787 …
-Status: HANDSHAKE FAILED
-```
-Plus a one-time **Alert** popup.
-
-**Cause:** Receiver is watching the wrong provider login (or provider EA not running).
+**Cause:** Incomplete copy (only `.mq5` installed).
 
 **Fix:**
-1. Set **Master account number** (input #1) = exact MASTER login from the other terminal.
-2. Confirm provider log says `WRITES snapshot: ...\MT5Copier-<that-login>-positions.csv`.
-3. Both terminals on the same PC (local copy) so they share `Common\Files`.
+1. Delete `MQL5/Experts/MT5TradeCopier/`.  
+2. Re-copy **all** files from [GitHub](https://github.com/bpareshgit/MT5TradeCopier).  
+3. Compile again → version **1.08**, 0 errors.
 
 ---
 
-### Error 5: CopierTypes.mqh / compile errors
+### Error 7: EA runs but nothing copies
 
-**Log message (MetaEditor):**
-```text
-file 'CopierTypes.mqh' not found
-```
-or
-```text
-undeclared identifier 'SYMBOL_VOLUME_DIGITS'
-```
+| Check | Action |
+|-------|--------|
+| CSV exists on master? | `Common\Files\MT5Copier-*.csv` |
+| Master account number exact? | Must match master login digit-for-digit |
+| Local copy? | HTTP = false, FTP = false |
+| Symbol names differ? | Use **Symbol remap** |
+| Full mirror? | Keep `true` for SL/TP + close |
+| Risk filters? | With Full mirror ON, deviation/age are ignored |
 
-**Cause:** Old or incomplete install — missing `.mqh` files or outdated version.
+Set **Log level** = `DEBUG` if you need more detail.
+
+---
+
+### Error 8: Slave closes, then trade reopens
+
+**Cause:** Old EA version, or **Respect local close** was off.
+
+**Fix:** Use **v1.08+**, set **Respect local close** = `true`, recompile and re-attach on the slave.  
+Log should show: `Local close locked — will not reopen provider ticket …`
+
+---
+
+### Error 9: WebRequest failed
 
 **Fix:**
-1. Delete `MQL5/Experts/MT5TradeCopier/` entirely.
-2. Re-copy all 8 files from [GitHub](https://github.com/bpareshgit/MT5TradeCopier).
-3. Compile again (expect version **1.05**, 0 errors).
-
----
-
-### Error 6: EA starts but no trades copy
-
-**Possible causes and fixes:**
-
-| Symptom | Check |
-|---------|--------|
-| No CSV on provider | Provider mode? Trade open on provider? Check `Common\Files\MT5Copier-*.csv` |
-| `HANDSHAKE FAILED` / account mismatch | **Provider account numbers** must match provider **login** exactly |
-| Symbol missing on receiver | Add **Symbol remap**, e.g. `XAUUSD=XAUUSDm` |
-| Risk filter blocking | Keep **Full mirror = true** (default). Or set **Max price deviation = 0**, disable **Ignore profitable**, check **Direction filter** |
-| Equity reserve | Reduce **Equity reserve %** or free margin on receiver |
-| Provider netting skipped | Provider snapshot says netting; use hedging provider |
-
-Enable **Log level** = `DEBUG` and re-check Experts tab.
-
----
-
-### Error 7: WebRequest failed
-
-**Log message:**
-```text
-[ERROR] WebRequest failed (...). Add URL to allowed list: https://...
-```
-
-**Fix:**
-1. **Tools → Options → Expert Advisors**
-2. Enable **Allow WebRequest for listed URL**
-3. Add the exact URL (or domain) from the error
-4. Restart terminal
+1. **Tools → Options → Expert Advisors**  
+2. Allow WebRequest for listed URL  
+3. Add the exact URL from the error  
+4. Restart the terminal  
 
 ---
 
 ## Input cheat sheet
 
-### Local copy (same PC)
+### Local (same PC)
 
-| | Provider | Receiver |
-|---|----------|----------|
+| | Master (PROVIDER) | Slave (RECEIVER) |
+|---|-------------------|------------------|
+| Master account number | — | **your master login** |
 | Operating mode | PROVIDER | RECEIVER |
 | Remote upload FTP | false | false |
 | Remote download HTTP | false | false |
-| Provider account numbers | — | your provider login |
-| Poll interval | 1000 | 1000 |
+| Full mirror | — | true |
+| Respect local close | — | true |
+| Poll interval | 1000 or 200 | same |
 
-### Remote copy (different PCs)
+### Remote (different PCs)
 
-| | Provider | Receiver |
-|---|----------|----------|
+| | Master | Slave |
+|---|--------|-------|
 | Remote upload FTP | true | false |
 | Remote download HTTP | false | true |
 | HTTP download URL | — | your CSV URL |
+| Master account number | — | master login |
 
 ---
 
 ## Copying from another EA
 
-1. Run your signal EA **and** MT5TradeCopier **Provider** on the **same** provider account.
-2. One copier chart is enough — it copies **all** open positions.
-3. Set copier poll to **1000–2000 ms** — do **not** match the other EA's scan rate (e.g. 15 s).
-4. Receiver settings: same as local copy above.
+1. Run your signal EA **and** MT5TradeCopier **PROVIDER** on the **same** master account.  
+2. One copier chart is enough — it copies **all** open positions.  
+3. Set copier poll to **200–1000 ms** (do not match a slow 15s signal timer).  
+4. Slave settings: same as local copy above.
 
 ---
 
 ## Still stuck?
 
-1. Set **Log level** = `DEBUG`, **Log to file** = `true`
-2. Check log in `Common\Files\MT5Copier-log.txt`
-3. Open a [GitHub issue](https://github.com/bpareshgit/MT5TradeCopier/issues) with:
-   - Provider vs receiver mode
-   - Hedging or netting account
-   - Local or remote copy
-   - Full error line from Experts tab
-   - Screenshot of EA inputs
+1. Log level = `DEBUG`, Log to file = `true`  
+2. Open `Common\Files\MT5Copier-log.txt`  
+3. Open a [GitHub issue](https://github.com/bpareshgit/MT5TradeCopier/issues) with:  
+   - Provider vs receiver  
+   - Hedging or netting  
+   - Local or remote  
+   - Full error line  
+   - Screenshot of inputs  
 
 ---
 

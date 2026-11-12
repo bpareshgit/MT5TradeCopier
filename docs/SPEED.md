@@ -52,12 +52,14 @@ Attach copier to **any** chart (XAUUSD, BTCUSD, etc. — symbol does not matter)
 |-------|---------------|-------|
 | Operating mode | `RECEIVER` |
 | Poll interval (ms) | **`200`** | Match provider |
-| Provider account numbers | exact provider login |
+| **Master account number** (input #1) | exact master login | Required |
+| Full mirror | `true` | Open + SL/TP + close |
+| Respect local close | `true` | Manual slave close will not reopen |
 | Remote download HTTP | **`false`** | Must be off for local copy |
 | Lot sizing mode | `SAME_AS_PROVIDER` | Fastest — no extra calc |
 | Log level | `INFO` while testing, then `WARN` |
 | Slippage points | `30–50` on XAUUSD | Helps fill speed (broker-dependent) |
-| Max price deviation | `100–200` on volatile symbols | Too low = skipped copies |
+| Max price deviation | `0` (or leave Full mirror ON) | Non-zero can skip opens if Full mirror OFF |
 | Max trade age (minutes) | `0` | Do not delay new copies |
 | Symbol remap | set **before** first trade | e.g. `XAUUSD=XAUUSDm` |
 
@@ -172,9 +174,11 @@ Log = WARN
 
 ### Receiver
 ```
+Master account number = YOUR_MASTER_LOGIN   (input #1, required)
 Mode = RECEIVER
 Poll = 200
-Provider accounts = YOUR_PROVIDER_LOGIN
+Full mirror = true
+Respect local close = true
 Remote HTTP = false
 Remote FTP = false
 Lot = SAME_AS_PROVIDER
